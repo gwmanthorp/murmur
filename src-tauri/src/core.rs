@@ -503,6 +503,9 @@ fn completion_notice(
 ) -> Option<&'static str> {
     match (paste_error, history_error) {
         (None, None) => None,
+        (Some(error), None) if error == paste::MODIFIER_RELEASE_ERROR => {
+            Some(paste::MODIFIER_RELEASE_ERROR)
+        }
         (Some(_), None) => Some("Couldn't paste — the dictation is saved in History."),
         (None, Some(_)) => Some("Dictation pasted, but it couldn't be saved to History."),
         (Some(_), Some(_)) => {
@@ -590,6 +593,10 @@ mod tests {
         assert_eq!(
             completion_notice(Some("paste"), Some("history")),
             Some("Couldn't paste or save to History. Use Paste Again before quitting.")
+        );
+        assert_eq!(
+            completion_notice(Some(paste::MODIFIER_RELEASE_ERROR), None),
+            Some("Release modifier keys, then use Paste Again.")
         );
     }
 
