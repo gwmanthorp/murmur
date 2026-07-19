@@ -19,6 +19,7 @@ export interface OverlayState {
 export interface PublicSettings {
   apiKeyConfigured: boolean;
   baseUrl: string;
+  dictationMode: DictationMode;
   micDevice?: string;
   micDevices: string[];
   holdShortcut: string;
@@ -30,8 +31,11 @@ export interface SaveSettingsInput {
   apiKey?: string;
   clearApiKey: boolean;
   baseUrl: string;
+  dictationMode: DictationMode;
   micDevice?: string;
 }
+
+export type DictationMode = "fast" | "polished";
 
 export function onOverlayState(
   cb: (s: OverlayState) => void,

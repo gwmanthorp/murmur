@@ -325,6 +325,7 @@ impl AppCore {
         PublicSettings {
             api_key_configured: !self.api_key.read().unwrap().trim().is_empty(),
             base_url: settings.base_url,
+            dictation_mode: settings.dictation_mode,
             mic_device: settings.mic_device,
             mic_devices: audio::list_input_devices(),
             hold_shortcut: settings.hold_shortcut.label(),
@@ -353,6 +354,8 @@ impl AppCore {
             }
         }
         settings.base_url = base_url;
+        settings.dictation_mode = input.dictation_mode;
+        settings.transcription_model = input.dictation_mode.transcription_model().into();
         settings.mic_device = input.mic_device.filter(|value| !value.trim().is_empty());
         settings::store::save(&settings).map_err(|error| error.to_string())?;
         *self.settings.write().unwrap() = settings;
@@ -560,7 +563,7 @@ async fn process_wav(
         TranscriptionRequest {
             base_url: &settings.base_url,
             api_key,
-            model: &settings.transcription_model,
+            model: settings.dictation_mode.transcription_model(),
             language: &settings.language,
             timeout: Duration::from_secs(20),
         },

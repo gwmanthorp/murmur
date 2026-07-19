@@ -2,6 +2,7 @@
 
 pub const DEFAULT_BASE_URL: &str = "https://api.groq.com/openai/v1";
 pub const DEFAULT_TRANSCRIPTION_MODEL: &str = "whisper-large-v3";
+pub const FAST_TRANSCRIPTION_MODEL: &str = "whisper-large-v3-turbo";
 pub const DEFAULT_CLEANUP_MODEL: &str = "openai/gpt-oss-20b";
 pub const DEFAULT_CLEANUP_FALLBACK_MODEL: &str = "qwen/qwen3.6-27b";
 
