@@ -102,7 +102,10 @@ pub async fn transcribe(
         form = form.text("language", req.language.trim().to_string());
     }
 
-    let url = format!("{}/audio/transcriptions", req.base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/audio/transcriptions",
+        req.base_url.trim_end_matches('/')
+    );
     let response = client
         .post(&url)
         .bearer_auth(req.api_key)
@@ -115,7 +118,9 @@ pub async fn transcribe(
     let status = response.status().as_u16();
     let body = response.text().await.map_err(classify_reqwest_error)?;
     if status != 200 {
-        return Err(TranscriptionError::Http(friendly_http_message(status, &body)));
+        return Err(TranscriptionError::Http(friendly_http_message(
+            status, &body,
+        )));
     }
 
     let parsed: TranscriptionResponse = serde_json::from_str(&body)
@@ -204,7 +209,10 @@ mod tests {
         // Real "thank you" speech has low no_speech_prob.
         assert!(!is_hallucination(&resp("Thank you.", Some(0.05))));
         // Unknown phrases never filtered.
-        assert!(!is_hallucination(&resp("Thank you for the report", Some(0.9))));
+        assert!(!is_hallucination(&resp(
+            "Thank you for the report",
+            Some(0.9)
+        )));
         // Missing metadata: skip the filter.
         assert!(!is_hallucination(&resp("Thank you.", None)));
     }

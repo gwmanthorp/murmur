@@ -65,10 +65,11 @@ async fn empty_sentinel_yields_empty_text() {
 async fn think_tags_stripped_for_qwen() {
     let server = Server::run();
     server.expect(
-        Expectation::matching(request::method_path("POST", "/chat/completions"))
-            .respond_with(json_encoded(chat_response(
+        Expectation::matching(request::method_path("POST", "/chat/completions")).respond_with(
+            json_encoded(chat_response(
                 "<think>the user wants cleanup</think>Hello there.",
-            ))),
+            )),
+        ),
     );
     let client = reqwest::Client::new();
     let cooldowns = Arc::new(CooldownManager::new(None));
@@ -138,6 +139,30 @@ async fn empty_output_retries_on_fallback() {
         .await
         .unwrap();
     assert_eq!(out.text, "Fallback fixed it.");
+}
+
+#[tokio::test]
+async fn timeout_retries_on_fallback() {
+    let server = Server::run();
+    server.expect(
+        Expectation::matching(request::method_path("POST", "/chat/completions"))
+            .times(2)
+            .respond_with(cycle![
+                delay_and_then(
+                    Duration::from_millis(80),
+                    json_encoded(chat_response("Too late.")),
+                ),
+                json_encoded(chat_response("Fallback after timeout.")),
+            ]),
+    );
+    let client = reqwest::Client::new();
+    let cooldowns = Arc::new(CooldownManager::new(None));
+    let mut req = request(server.url_str("/"));
+    req.timeout = Duration::from_millis(20);
+    let out = clean_with_fallback(&client, &cooldowns, &req, "fallback after timeout")
+        .await
+        .unwrap();
+    assert_eq!(out.text, "Fallback after timeout.");
 }
 
 #[tokio::test]

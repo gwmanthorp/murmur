@@ -5,7 +5,9 @@ pub const DEFAULT_TRANSCRIPTION_MODEL: &str = "whisper-large-v3";
 pub const DEFAULT_CLEANUP_MODEL: &str = "openai/gpt-oss-20b";
 pub const DEFAULT_CLEANUP_FALLBACK_MODEL: &str = "qwen/qwen3.6-27b";
 
+#[allow(dead_code)] // exposed by the deferred model-picker UI
 pub const TRANSCRIPTION_MODELS: &[&str] = &["whisper-large-v3", "whisper-large-v3-turbo"];
+#[allow(dead_code)] // exposed by the deferred model-picker UI
 pub const LLM_MODELS: &[&str] = &[
     "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
@@ -87,7 +89,10 @@ mod tests {
     #[test]
     fn qwen_alias_and_think_strip() {
         assert!(config_for("qwen3.6-27b").strip_think_tags);
-        assert_eq!(config_for("QWEN/qwen3.6-27b").reasoning_effort, Some("none"));
+        assert_eq!(
+            config_for("QWEN/qwen3.6-27b").reasoning_effort,
+            Some("none")
+        );
     }
 
     #[test]

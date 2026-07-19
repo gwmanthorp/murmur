@@ -16,6 +16,23 @@ export interface OverlayState {
   message?: string;
 }
 
+export interface PublicSettings {
+  apiKeyConfigured: boolean;
+  baseUrl: string;
+  micDevice?: string;
+  micDevices: string[];
+  holdShortcut: string;
+  toggleShortcut: string;
+  preserveClipboard: boolean;
+}
+
+export interface SaveSettingsInput {
+  apiKey?: string;
+  clearApiKey: boolean;
+  baseUrl: string;
+  micDevice?: string;
+}
+
 export function onOverlayState(
   cb: (s: OverlayState) => void,
 ): Promise<UnlistenFn> {
@@ -28,4 +45,11 @@ export function onOverlayLevel(cb: (level: number) => void): Promise<UnlistenFn>
 
 export const commands = {
   ping: () => invoke<string>("ping"),
+  getSettings: () => invoke<PublicSettings>("get_settings"),
+  saveSettings: (input: SaveSettingsInput) =>
+    invoke<PublicSettings>("save_settings", { input }),
+  validateCredentials: (apiKey: string, baseUrl: string) =>
+    invoke<void>("validate_credentials", { apiKey, baseUrl }),
+  stopDictating: () => invoke<void>("stop_dictating"),
+  pasteAgain: () => invoke<void>("paste_again"),
 };

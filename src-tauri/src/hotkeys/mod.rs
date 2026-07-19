@@ -25,7 +25,13 @@ impl ShortcutEngineHandle {
         self.send(EngineInput::SetSuspended(suspended));
     }
 
-    pub fn set_bindings(&self, hold: ShortcutBinding, toggle: ShortcutBinding, start_delay_ms: u64) {
+    #[allow(dead_code)] // used by shortcut capture/rebinding in M8
+    pub fn set_bindings(
+        &self,
+        hold: ShortcutBinding,
+        toggle: ShortcutBinding,
+        start_delay_ms: u64,
+    ) {
         self.send(EngineInput::SetBindings {
             hold,
             toggle,

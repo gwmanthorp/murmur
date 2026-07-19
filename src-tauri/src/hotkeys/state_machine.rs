@@ -43,7 +43,11 @@ pub enum SessionEvent {
 
 #[derive(Debug)]
 pub enum EngineInput {
-    Key { vk: u16, down: bool },
+    Key {
+        vk: u16,
+        down: bool,
+    },
+    #[allow(dead_code)] // used by shortcut capture/rebinding in M8
     SetBindings {
         hold: ShortcutBinding,
         toggle: ShortcutBinding,
@@ -57,8 +61,14 @@ pub enum EngineInput {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Idle,
-    Pending { mode: TriggerMode, deadline: Instant },
-    Active { mode: TriggerMode, toggle_rearmed: bool },
+    Pending {
+        mode: TriggerMode,
+        deadline: Instant,
+    },
+    Active {
+        mode: TriggerMode,
+        toggle_rearmed: bool,
+    },
 }
 
 pub struct Engine {
@@ -102,8 +112,13 @@ impl Engine {
     fn in_hold_phase(&self) -> bool {
         matches!(
             self.state,
-            State::Pending { mode: TriggerMode::Hold, .. }
-                | State::Active { mode: TriggerMode::Hold, .. }
+            State::Pending {
+                mode: TriggerMode::Hold,
+                ..
+            } | State::Active {
+                mode: TriggerMode::Hold,
+                ..
+            }
         )
     }
 
@@ -139,12 +154,23 @@ impl Engine {
                     out.push(SessionEvent::CancelTranscription);
                 } else if matches!(
                     self.state,
-                    State::Active { mode: TriggerMode::Toggle, .. }
-                        | State::Pending { mode: TriggerMode::Toggle, .. }
+                    State::Active {
+                        mode: TriggerMode::Toggle,
+                        ..
+                    } | State::Pending {
+                        mode: TriggerMode::Toggle,
+                        ..
+                    }
                 ) {
                     self.state = State::Idle;
                     out.push(SessionEvent::Cancel);
                 }
+                return out;
+            }
+
+            // Processing is exclusive: keep the configured keys swallowed at
+            // the hook, but never begin a second recording until it finishes.
+            if self.transcribing {
                 return out;
             }
 
@@ -157,14 +183,20 @@ impl Engine {
             };
             if self.toggle.contains(vk) && self.satisfied(&self.toggle, latch_ignore) {
                 match self.state {
-                    State::Active { mode: TriggerMode::Hold, .. } => {
+                    State::Active {
+                        mode: TriggerMode::Hold,
+                        ..
+                    } => {
                         self.state = State::Active {
                             mode: TriggerMode::Toggle,
                             toggle_rearmed: false,
                         };
                         out.push(SessionEvent::Latched);
                     }
-                    State::Pending { mode: TriggerMode::Hold, deadline } => {
+                    State::Pending {
+                        mode: TriggerMode::Hold,
+                        deadline,
+                    } => {
                         self.state = State::Pending {
                             mode: TriggerMode::Toggle,
                             deadline,
@@ -177,16 +209,20 @@ impl Engine {
                         self.state = State::Idle;
                         out.push(SessionEvent::Stop);
                     }
-                    State::Active { mode: TriggerMode::Toggle, .. }
-                    | State::Pending { mode: TriggerMode::Toggle, .. } => {}
+                    State::Active {
+                        mode: TriggerMode::Toggle,
+                        ..
+                    }
+                    | State::Pending {
+                        mode: TriggerMode::Toggle,
+                        ..
+                    } => {}
                     State::Idle => self.begin(TriggerMode::Toggle, now, &mut out),
                 }
                 return out;
             }
 
-            if self.hold.contains(vk)
-                && self.satisfied(&self.hold, 0)
-                && self.state == State::Idle
+            if self.hold.contains(vk) && self.satisfied(&self.hold, 0) && self.state == State::Idle
             {
                 self.begin(TriggerMode::Hold, now, &mut out);
             }
@@ -194,14 +230,23 @@ impl Engine {
             self.down.remove(&vk);
 
             match self.state {
-                State::Active { mode: TriggerMode::Hold, .. } if self.hold.contains(vk) => {
+                State::Active {
+                    mode: TriggerMode::Hold,
+                    ..
+                } if self.hold.contains(vk) => {
                     self.state = State::Idle;
                     out.push(SessionEvent::Stop);
                 }
-                State::Pending { mode: TriggerMode::Hold, .. } if self.hold.contains(vk) => {
+                State::Pending {
+                    mode: TriggerMode::Hold,
+                    ..
+                } if self.hold.contains(vk) => {
                     self.state = State::Idle;
                 }
-                State::Pending { mode: TriggerMode::Toggle, .. } if self.toggle.contains(vk) => {
+                State::Pending {
+                    mode: TriggerMode::Toggle,
+                    ..
+                } if self.toggle.contains(vk) => {
                     self.state = State::Idle;
                 }
                 State::Active {
@@ -305,6 +350,12 @@ impl Engine {
         let mut rules = Vec::new();
         if let Some(key) = self.hold.key() {
             rules.push((key, self.hold.modifier_mask()));
+        } else {
+            // Modifier-only bindings (the default Right Ctrl hold shortcut)
+            // must swallow the modifier itself when the exact combo matches.
+            for &modifier in &self.hold.vks {
+                rules.push((modifier, self.hold.modifier_mask()));
+            }
         }
         if let Some(key) = self.toggle.key() {
             rules.push((key, self.toggle.modifier_mask()));
@@ -320,8 +371,13 @@ impl Engine {
             swallow_esc: self.transcribing
                 || matches!(
                     self.state,
-                    State::Active { mode: TriggerMode::Toggle, .. }
-                        | State::Pending { mode: TriggerMode::Toggle, .. }
+                    State::Active {
+                        mode: TriggerMode::Toggle,
+                        ..
+                    } | State::Pending {
+                        mode: TriggerMode::Toggle,
+                        ..
+                    }
                 ),
             suspended: self.suspended,
         }
@@ -484,7 +540,10 @@ mod tests {
             e.tick(t0 + Duration::from_millis(200)),
             vec![SessionEvent::Begin(TriggerMode::Hold)]
         );
-        assert_eq!(e.handle_key(VK_RCONTROL, false, t0), vec![SessionEvent::Stop]);
+        assert_eq!(
+            e.handle_key(VK_RCONTROL, false, t0),
+            vec![SessionEvent::Stop]
+        );
     }
 
     #[test]
@@ -527,6 +586,18 @@ mod tests {
         assert!(cfg
             .swallow_rules
             .contains(&(VK_F9, modifier_bit(VK_RCONTROL))));
+        assert!(cfg
+            .swallow_rules
+            .contains(&(VK_RCONTROL, modifier_bit(VK_RCONTROL))));
         assert!(!cfg.swallow_esc);
+    }
+
+    #[test]
+    fn transcription_blocks_new_recording() {
+        let mut e = engine();
+        e.transcribing = true;
+        assert!(key(&mut e, VK_RCONTROL, true).is_empty());
+        assert!(key(&mut e, VK_RCONTROL, false).is_empty());
+        assert!(key(&mut e, VK_F9, true).is_empty());
     }
 }

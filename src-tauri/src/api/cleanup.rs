@@ -45,7 +45,9 @@ pub struct CleanupRequest {
 pub struct CleanupOutcome {
     pub text: String,
     /// Full prompt for debugging/history; empty when cleanup was skipped.
+    #[allow(dead_code)] // retained for the deferred history/settings surface
     pub prompt: String,
+    pub degraded: bool,
 }
 
 /// Top-level entry: try primary then fallback; on unrecoverable failure the
@@ -77,6 +79,7 @@ pub async fn clean_with_fallback(
         return Ok(CleanupOutcome {
             text: transcript.trim().to_string(),
             prompt: String::new(),
+            degraded: true,
         });
     };
 
@@ -88,6 +91,7 @@ pub async fn clean_with_fallback(
                 CleanupError::RateLimited { .. }
                     | CleanupError::RequestFailed(429, _)
                     | CleanupError::EmptyOutput
+                    | CleanupError::TimedOut
                     | CleanupError::SuspectedInstructionExecution
             );
             if !should_fallback {
@@ -104,6 +108,7 @@ pub async fn clean_with_fallback(
                 Err(CleanupError::SuspectedInstructionExecution) => Ok(CleanupOutcome {
                     text: transcript.trim().to_string(),
                     prompt: String::new(),
+                    degraded: true,
                 }),
                 Err(e) => Err(e),
             }
@@ -118,6 +123,7 @@ fn degrade_on_guard(error: CleanupError, transcript: &str) -> Result<CleanupOutc
         Ok(CleanupOutcome {
             text: transcript.trim().to_string(),
             prompt: String::new(),
+            degraded: true,
         })
     } else {
         Err(error)
@@ -187,7 +193,10 @@ async fn process(
         .await
         .map_err(|e| CleanupError::InvalidResponse(e.to_string()))?;
     if status != 200 {
-        return Err(CleanupError::RequestFailed(status, body.chars().take(300).collect()));
+        return Err(CleanupError::RequestFailed(
+            status,
+            body.chars().take(300).collect(),
+        ));
     }
 
     let parsed: Value =
@@ -218,6 +227,7 @@ async fn process(
     Ok(CleanupOutcome {
         text: sanitized,
         prompt: prompt_for_display,
+        degraded: false,
     })
 }
 
@@ -234,17 +244,35 @@ pub fn sanitize_transcript(value: &str) -> String {
 }
 
 const INSTRUCTION_MARKERS: &[&str] = &[
-    "ask", "answer", "compose", "create", "draft", "email", "generate", "make", "message",
-    "prompt", "reply", "respond", "response", "summarize", "tell", "translate", "write",
-    "claude", "chatgpt", "ai", "llm",
+    "ask",
+    "answer",
+    "compose",
+    "create",
+    "draft",
+    "email",
+    "generate",
+    "make",
+    "message",
+    "prompt",
+    "reply",
+    "respond",
+    "response",
+    "summarize",
+    "tell",
+    "translate",
+    "write",
+    "claude",
+    "chatgpt",
+    "ai",
+    "llm",
 ];
 
 const STOP_WORDS: &[&str] = &[
     "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "could", "for", "from", "had",
     "has", "have", "he", "her", "him", "his", "i", "if", "in", "into", "is", "it", "its", "just",
     "me", "my", "of", "on", "or", "our", "please", "she", "so", "that", "the", "their", "them",
-    "then", "there", "this", "to", "um", "uh", "was", "we", "were", "what", "when", "where",
-    "who", "with", "would", "you", "your",
+    "then", "there", "this", "to", "um", "uh", "was", "we", "were", "what", "when", "where", "who",
+    "with", "would", "you", "your",
 ];
 
 const ASSISTANT_PREAMBLES: &[&str] = &[
@@ -270,7 +298,10 @@ fn has_assistant_preamble(text: &str) -> bool {
     let lowered = text.trim_start().to_lowercase();
     ASSISTANT_PREAMBLES.iter().any(|p| {
         lowered.strip_prefix(p).is_some_and(|rest| {
-            rest.chars().next().map(|c| !c.is_alphanumeric()).unwrap_or(true)
+            rest.chars()
+                .next()
+                .map(|c| !c.is_alphanumeric())
+                .unwrap_or(true)
         })
     })
 }

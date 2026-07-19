@@ -37,6 +37,7 @@ fn mix(current: f32, target: f32, blend: f32) -> f32 {
 }
 
 impl LiveAudioLevelNormalizer {
+    #[allow(dead_code)] // retained for live device switching in the full settings pass
     pub fn reset(&mut self) {
         *self = Self::default();
     }
@@ -121,7 +122,10 @@ mod tests {
         for _ in 0..20 {
             peak = peak.max(n.normalized_level(0.05));
         }
-        assert!(peak >= 0.12, "speech should reach visible level, got {peak}");
+        assert!(
+            peak >= 0.12,
+            "speech should reach visible level, got {peak}"
+        );
     }
 
     #[test]

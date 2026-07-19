@@ -69,7 +69,10 @@ impl CooldownManager {
             persisted.insert(model.to_string(), expiry);
             self.save(&persisted);
         } else {
-            self.in_memory.lock().unwrap().insert(model.to_string(), expiry);
+            self.in_memory
+                .lock()
+                .unwrap()
+                .insert(model.to_string(), expiry);
         }
     }
 
@@ -87,6 +90,7 @@ impl CooldownManager {
     }
 
     /// Cooldown expiry (unix seconds) for a model, for the settings UI.
+    #[allow(dead_code)] // consumed by the deferred full settings UI
     pub fn expiry(&self, model: &str) -> Option<f64> {
         let now = now_unix();
         let mem = self.in_memory.lock().unwrap();
@@ -120,10 +124,12 @@ pub fn rate_limit_cooldown(headers: &reqwest::header::HeaderMap) -> (f64, bool) 
             .map(str::trim)
     };
 
-    let remaining_requests = get("x-ratelimit-remaining-requests").and_then(|v| v.parse::<f64>().ok());
+    let remaining_requests =
+        get("x-ratelimit-remaining-requests").and_then(|v| v.parse::<f64>().ok());
     if let Some(remaining) = remaining_requests {
         if remaining <= 0.0 {
-            if let Some(daily_reset) = get("x-ratelimit-reset-requests").and_then(parse_groq_duration)
+            if let Some(daily_reset) =
+                get("x-ratelimit-reset-requests").and_then(parse_groq_duration)
             {
                 return (daily_reset, true);
             }

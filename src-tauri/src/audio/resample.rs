@@ -1,6 +1,8 @@
 //! Mono f32 at an arbitrary source rate → 16 kHz mono i16.
 
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 
 use super::TARGET_SAMPLE_RATE;
 

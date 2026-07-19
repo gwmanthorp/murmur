@@ -5,3 +5,5 @@ root.innerHTML = `
     <h1>Welcome to Murmur</h1>
   </div>
 `;
+
+export {};

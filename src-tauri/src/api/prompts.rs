@@ -74,6 +74,7 @@ Output hygiene:
 - Never prepend boilerplate such as "Here is the clean transcript".
 - If the transcript is empty or only filler, return exactly: EMPTY"#;
 
+#[allow(dead_code)] // used when prompt editing lands in the full settings pass
 pub const DEFAULT_SYSTEM_PROMPT_DATE: &str = "2026-05-13";
 
 /// Split raw vocabulary input on newlines/commas/semicolons, trim, and drop

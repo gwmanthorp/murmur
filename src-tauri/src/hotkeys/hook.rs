@@ -6,15 +6,16 @@
 //! decides whether to swallow the key. All real logic lives in
 //! `state_machine.rs` on the consumer thread.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use arc_swap::ArcSwap;
 use crossbeam_channel::Sender;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
-    KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
+    CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, SetTimer, SetWindowsHookExW,
+    TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL,
+    WM_KEYDOWN, WM_SYSKEYDOWN, WM_TIMER,
 };
 
 use super::bindings::{is_modifier, modifier_bit, VK_ESCAPE};
@@ -41,6 +42,40 @@ pub struct HookConfig {
 static CONFIG: OnceLock<ArcSwap<HookConfig>> = OnceLock::new();
 static TX: OnceLock<Sender<EngineInput>> = OnceLock::new();
 static MOD_MASK: AtomicU8 = AtomicU8::new(0);
+static SWALLOWED: [AtomicU64; 4] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+];
+
+fn swallowed_slot(vk: u16) -> Option<(&'static AtomicU64, u64)> {
+    (vk < 256).then(|| {
+        let index = vk as usize;
+        (&SWALLOWED[index / 64], 1u64 << (index % 64))
+    })
+}
+
+fn remember_swallowed(vk: u16) {
+    if let Some((slot, bit)) = swallowed_slot(vk) {
+        slot.fetch_or(bit, Ordering::Relaxed);
+    }
+}
+
+fn take_swallowed(vk: u16) -> bool {
+    swallowed_slot(vk).is_some_and(|(slot, bit)| {
+        let previous = slot.fetch_and(!bit, Ordering::Relaxed);
+        previous & bit != 0
+    })
+}
+
+fn matches_keydown(cfg: &HookConfig, vk: u16, mask: u8) -> bool {
+    (vk == VK_ESCAPE && cfg.swallow_esc)
+        || cfg
+            .swallow_rules
+            .iter()
+            .any(|&(rule_vk, required_mask)| rule_vk == vk && mask == required_mask)
+}
 
 pub fn store_config(cfg: HookConfig) {
     CONFIG
@@ -84,11 +119,15 @@ unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: WPARAM, lparam: LP
     }
 
     let mask = MOD_MASK.load(Ordering::Relaxed);
-    let swallow = (vk == VK_ESCAPE && cfg.swallow_esc && down)
-        || cfg
-            .swallow_rules
-            .iter()
-            .any(|&(rvk, rmask)| rvk == vk && (!down || mask == rmask));
+    let swallow = if down {
+        let matched = matches_keydown(&cfg, vk, mask);
+        if matched {
+            remember_swallowed(vk);
+        }
+        matched
+    } else {
+        take_swallowed(vk)
+    };
     if swallow {
         return LRESULT(1);
     }
@@ -103,7 +142,8 @@ pub fn spawn_hook(tx: Sender<EngineInput>) {
     std::thread::Builder::new()
         .name("murmur-kbd-hook".into())
         .spawn(|| unsafe {
-            let hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard_proc), None, 0) {
+            let mut hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard_proc), None, 0)
+            {
                 Ok(h) => h,
                 Err(e) => {
                     tracing::error!("failed to install keyboard hook: {e}");
@@ -111,11 +151,62 @@ pub fn spawn_hook(tx: Sender<EngineInput>) {
                 }
             };
             tracing::info!("keyboard hook installed ({hook:?})");
+            // Reinstall periodically on this same message-pump thread. Windows
+            // may silently remove a low-level hook after a callback timeout;
+            // this bounds recovery without adding work to the callback.
+            let timer_id = SetTimer(None, 0, 60_000, None);
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                if msg.message == WM_TIMER && msg.wParam.0 == timer_id {
+                    match SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard_proc), None, 0) {
+                        Ok(reinstalled) => {
+                            let previous = hook;
+                            hook = reinstalled;
+                            let _ = UnhookWindowsHookEx(previous);
+                            tracing::debug!("keyboard hook health reinstall complete");
+                        }
+                        Err(error) => tracing::error!("keyboard hook reinstall failed: {error}"),
+                    }
+                    continue;
+                }
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+            let _ = KillTimer(None, timer_id);
+            let _ = UnhookWindowsHookEx(hook);
         })
         .expect("failed to spawn hook thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hotkeys::bindings::{modifier_bit, VK_F9, VK_RCONTROL};
+
+    #[test]
+    fn modifier_only_rule_requires_exact_mask() {
+        let cfg = HookConfig {
+            swallow_rules: vec![(VK_RCONTROL, modifier_bit(VK_RCONTROL))],
+            ..Default::default()
+        };
+        assert!(matches_keydown(
+            &cfg,
+            VK_RCONTROL,
+            modifier_bit(VK_RCONTROL)
+        ));
+        assert!(!matches_keydown(
+            &cfg,
+            VK_RCONTROL,
+            modifier_bit(VK_RCONTROL) | 1
+        ));
+    }
+
+    #[test]
+    fn swallowed_keyup_must_match_a_swallowed_keydown() {
+        let _ = take_swallowed(VK_F9);
+        assert!(!take_swallowed(VK_F9));
+        remember_swallowed(VK_F9);
+        assert!(take_swallowed(VK_F9));
+        assert!(!take_swallowed(VK_F9));
+    }
 }

@@ -90,7 +90,15 @@ pub fn start(
     std::thread::Builder::new()
         .name("murmur-recorder".into())
         .spawn(move || {
-            record_thread(device_name, cmd_rx, result_tx, setup_tx, on_level, on_ready, on_error);
+            record_thread(
+                device_name,
+                cmd_rx,
+                result_tx,
+                setup_tx,
+                on_level,
+                on_ready,
+                on_error,
+            );
         })
         .map_err(|e| AudioError::Device(e.to_string()))?;
 

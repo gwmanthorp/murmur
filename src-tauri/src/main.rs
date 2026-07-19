@@ -2,11 +2,19 @@
 
 mod api;
 mod audio;
+mod core;
+mod events;
 mod hotkeys;
+mod overlay;
+mod paste;
+mod settings;
+mod sound;
 mod tray;
+mod windows_ext;
 
-use hotkeys::{ShortcutBinding, SessionEvent};
-use tauri::{Emitter, Manager, RunEvent};
+use std::sync::Arc;
+
+use tauri::{Manager, RunEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
 #[tauri::command]
@@ -38,23 +46,28 @@ fn main() {
             MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![ping])
+        .invoke_handler(tauri::generate_handler![
+            ping,
+            core::get_settings,
+            core::save_settings,
+            core::validate_credentials,
+            core::stop_dictating,
+            core::paste_again,
+        ])
         .setup(|app| {
-            tray::init(app.handle())?;
+            let tray_state = tray::init(app.handle())?;
+            app.manage(tray_state);
 
-            // Shortcut engine: Right Ctrl = hold-to-talk, F9 = tap-to-toggle.
-            // Bindings become configurable in M8.
-            let handle = app.handle().clone();
-            let engine = hotkeys::spawn(
-                ShortcutBinding::new(vec![hotkeys::bindings::VK_RCONTROL]),
-                ShortcutBinding::new(vec![hotkeys::bindings::VK_F9]),
-                0,
-                move |event: SessionEvent| {
-                    tracing::info!("session event: {event:?}");
-                    let _ = handle.emit("debug://shortcut", format!("{event:?}"));
-                },
-            );
-            app.manage(engine);
+            let (core, rx) = core::AppCore::new(app.handle().clone());
+            let (hold, toggle, delay) = core.initial_shortcuts();
+            let events = core.clone();
+            let engine = Arc::new(hotkeys::spawn(hold, toggle, delay, move |event| {
+                tracing::info!("session event: {event:?}");
+                events.send_shortcut(event);
+            }));
+            core.attach_engine(engine);
+            core.start(rx);
+            app.manage(core);
             Ok(())
         })
         .on_window_event(|window, event| {
