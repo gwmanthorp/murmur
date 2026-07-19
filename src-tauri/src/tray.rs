@@ -14,10 +14,21 @@ pub struct TrayState {
 pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
     let toggle = MenuItem::with_id(app, "toggle", "Start Dictating", true, None::<&str>)?;
     let paste_again = MenuItem::with_id(app, "paste_again", "Paste Again", false, None::<&str>)?;
+    let history = MenuItem::with_id(app, "history", "History...", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Murmur", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&toggle, &paste_again, &settings, &separator, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &toggle,
+            &paste_again,
+            &history,
+            &settings,
+            &separator,
+            &quit,
+        ],
+    )?;
 
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
@@ -34,6 +45,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
                     }
                 });
             }
+            "history" => crate::show_history(app),
             "settings" => crate::show_settings(app),
             "quit" => app.exit(0),
             _ => {}

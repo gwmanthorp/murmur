@@ -37,6 +37,12 @@ export interface SaveSettingsInput {
 
 export type DictationMode = "fast" | "polished";
 
+export interface HistoryEntry {
+  id: number;
+  createdAtMs: number;
+  text: string;
+}
+
 export function onOverlayState(
   cb: (s: OverlayState) => void,
 ): Promise<UnlistenFn> {
@@ -45,6 +51,10 @@ export function onOverlayState(
 
 export function onOverlayLevel(cb: (level: number) => void): Promise<UnlistenFn> {
   return listen<number>("overlay://level", (e) => cb(e.payload));
+}
+
+export function onHistoryChanged(cb: () => void): Promise<UnlistenFn> {
+  return listen("history://changed", cb);
 }
 
 export const commands = {
@@ -56,4 +66,8 @@ export const commands = {
     invoke<void>("validate_credentials", { apiKey, baseUrl }),
   stopDictating: () => invoke<void>("stop_dictating"),
   pasteAgain: () => invoke<void>("paste_again"),
+  getHistory: () => invoke<HistoryEntry[]>("get_history"),
+  copyHistoryEntry: (id: number) => invoke<void>("copy_history_entry", { id }),
+  deleteHistoryEntry: (id: number) => invoke<void>("delete_history_entry", { id }),
+  clearHistory: () => invoke<void>("clear_history"),
 };

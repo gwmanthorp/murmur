@@ -6,6 +6,7 @@ pub const OVERLAY_STATE: &str = "overlay://state";
 pub const OVERLAY_LEVEL: &str = "overlay://level";
 pub const SETTINGS_CHANGED: &str = "settings://changed";
 pub const PIPELINE_RESULT: &str = "pipeline://result";
+pub const HISTORY_CHANGED: &str = "history://changed";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]

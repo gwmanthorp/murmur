@@ -77,6 +77,24 @@ fn matches_keydown(cfg: &HookConfig, vk: u16, mask: u8) -> bool {
             .any(|&(rule_vk, required_mask)| rule_vk == vk && mask == required_mask)
 }
 
+fn decide_swallow(cfg: &HookConfig, vk: u16, down: bool, mask: u8) -> bool {
+    if cfg.suspended {
+        if !down {
+            let _ = take_swallowed(vk);
+        }
+        return false;
+    }
+    if down {
+        let matched = matches_keydown(cfg, vk, mask);
+        if matched {
+            remember_swallowed(vk);
+        }
+        matched
+    } else {
+        take_swallowed(vk)
+    }
+}
+
 pub fn store_config(cfg: HookConfig) {
     CONFIG
         .get_or_init(|| ArcSwap::from_pointee(HookConfig::default()))
@@ -110,24 +128,14 @@ unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: WPARAM, lparam: LP
         return CallNextHookEx(None, code, wparam, lparam);
     };
     let cfg = cfg_cell.load();
-    if cfg.suspended {
-        return CallNextHookEx(None, code, wparam, lparam);
-    }
-
-    if let Some(tx) = TX.get() {
-        let _ = tx.try_send(EngineInput::Key { vk, down });
+    if !cfg.suspended {
+        if let Some(tx) = TX.get() {
+            let _ = tx.try_send(EngineInput::Key { vk, down });
+        }
     }
 
     let mask = MOD_MASK.load(Ordering::Relaxed);
-    let swallow = if down {
-        let matched = matches_keydown(&cfg, vk, mask);
-        if matched {
-            remember_swallowed(vk);
-        }
-        matched
-    } else {
-        take_swallowed(vk)
-    };
+    let swallow = decide_swallow(&cfg, vk, down, mask);
     if swallow {
         return LRESULT(1);
     }
@@ -208,5 +216,18 @@ mod tests {
         remember_swallowed(VK_F9);
         assert!(take_swallowed(VK_F9));
         assert!(!take_swallowed(VK_F9));
+    }
+
+    #[test]
+    fn suspended_keyup_clears_swallowed_bookkeeping_without_swallowing() {
+        const TEST_KEY: u16 = 0x70;
+        let _ = take_swallowed(TEST_KEY);
+        remember_swallowed(TEST_KEY);
+        let cfg = HookConfig {
+            suspended: true,
+            ..Default::default()
+        };
+        assert!(!decide_swallow(&cfg, TEST_KEY, false, 0));
+        assert!(!take_swallowed(TEST_KEY));
     }
 }
