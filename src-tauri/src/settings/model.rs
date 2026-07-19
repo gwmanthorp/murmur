@@ -42,6 +42,7 @@ pub struct Settings {
     pub toggle_shortcut: ShortcutBinding,
     pub start_delay_ms: u64,
     pub preserve_clipboard: bool,
+    pub commands_beta_enabled: bool,
     pub sounds_enabled: bool,
     pub launch_at_login: bool,
     pub mic_device: Option<String>,
@@ -66,6 +67,7 @@ impl Default for Settings {
             toggle_shortcut: ShortcutBinding::new(vec![VK_F9]),
             start_delay_ms: 0,
             preserve_clipboard: true,
+            commands_beta_enabled: false,
             sounds_enabled: true,
             launch_at_login: false,
             mic_device: None,
@@ -86,6 +88,7 @@ pub struct PublicSettings {
     pub hold_shortcut: String,
     pub toggle_shortcut: String,
     pub preserve_clipboard: bool,
+    pub commands_beta_enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -97,6 +100,7 @@ pub struct SaveSettingsInput {
     pub base_url: String,
     pub dictation_mode: DictationMode,
     pub mic_device: Option<String>,
+    pub commands_beta_enabled: bool,
 }
 
 #[cfg(test)]
@@ -107,6 +111,7 @@ mod tests {
     fn polished_is_the_backwards_compatible_default() {
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(settings.dictation_mode, DictationMode::Polished);
+        assert!(!settings.commands_beta_enabled);
         assert_eq!(
             settings.dictation_mode.transcription_model(),
             "whisper-large-v3"
@@ -131,5 +136,20 @@ mod tests {
         assert!(json.contains(r#""dictationMode":"fast""#));
         let decoded: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.dictation_mode, DictationMode::Fast);
+    }
+
+    #[test]
+    fn commands_beta_round_trips() {
+        let settings = Settings {
+            commands_beta_enabled: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains(r#""commandsBetaEnabled":true"#));
+        assert!(
+            serde_json::from_str::<Settings>(&json)
+                .unwrap()
+                .commands_beta_enabled
+        );
     }
 }

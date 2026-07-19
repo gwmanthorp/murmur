@@ -8,8 +8,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::cleanup::{clean_with_fallback, CleanupError, CleanupOutcome, CleanupRequest};
 use crate::api::cooldown::CooldownManager;
+use crate::api::execute::{answer_with_fallback, ExecuteRequest};
 use crate::api::transcription::{self, TranscriptionRequest};
 use crate::audio::RecordingHandle;
+use crate::commands::{self, CommandAction};
 use crate::events::{OverlayPhase, PipelineResult, HISTORY_CHANGED, PIPELINE_RESULT};
 use crate::history::{HistoryEntry, HistoryStore};
 use crate::hotkeys::{SessionEvent, ShortcutEngineHandle, TriggerMode};
@@ -39,6 +41,9 @@ pub(crate) enum CoreEvent {
         run: u64,
         result: PipelineCompletion,
     },
+    Executing {
+        run: u64,
+    },
 }
 
 pub(crate) enum PipelineCompletion {
@@ -58,6 +63,21 @@ enum BlockingFinalization {
         history_error: Option<String>,
         paste_error: Option<String>,
     },
+}
+
+struct PipelineRunContext {
+    cancel: CancellationToken,
+    stage: Option<(mpsc::UnboundedSender<CoreEvent>, u64)>,
+}
+
+impl PipelineRunContext {
+    #[cfg(test)]
+    fn without_stage(cancel: CancellationToken) -> Self {
+        Self {
+            cancel,
+            stage: None,
+        }
+    }
 }
 
 enum CoordinatorState {
@@ -315,6 +335,12 @@ impl AppCore {
                         self.show_error(format!("Microphone disconnected: {message}"));
                     }
                 }
+                CoreEvent::Executing { run } => {
+                    if matches!(state, CoordinatorState::Processing { run: active, .. } if active == run)
+                    {
+                        self.overlay.set_state(OverlayPhase::Executing, false, None);
+                    }
+                }
                 CoreEvent::PipelineFinished { run, result } => {
                     if !matches!(state, CoordinatorState::Processing { run: active, .. } if active == run)
                     {
@@ -348,10 +374,20 @@ impl AppCore {
         let client = self.client.clone();
         let cooldowns = self.cooldowns.clone();
         let history = self.history.clone();
+        let stage_tx = tx.clone();
 
         tauri::async_runtime::spawn(async move {
             let completion = run_pipeline(
-                recording, settings, api_key, client, cooldowns, history, cancel,
+                recording,
+                settings,
+                api_key,
+                client,
+                cooldowns,
+                history,
+                PipelineRunContext {
+                    cancel,
+                    stage: Some((stage_tx, run)),
+                },
             )
             .await;
             let _ = tx.send(CoreEvent::PipelineFinished {
@@ -372,6 +408,7 @@ impl AppCore {
             hold_shortcut: settings.hold_shortcut.label(),
             toggle_shortcut: settings.toggle_shortcut.label(),
             preserve_clipboard: settings.preserve_clipboard,
+            commands_beta_enabled: settings.commands_beta_enabled,
         }
     }
 
@@ -398,6 +435,7 @@ impl AppCore {
         settings.dictation_mode = input.dictation_mode;
         settings.transcription_model = input.dictation_mode.transcription_model().into();
         settings.mic_device = input.mic_device.filter(|value| !value.trim().is_empty());
+        settings.commands_beta_enabled = input.commands_beta_enabled;
         settings::store::save(&settings).map_err(|error| error.to_string())?;
         *self.settings.write().unwrap() = settings;
         *self.api_key.write().unwrap() = key;
@@ -506,6 +544,7 @@ fn completion_notice(
         (Some(error), None) if error == paste::MODIFIER_RELEASE_ERROR => {
             Some(paste::MODIFIER_RELEASE_ERROR)
         }
+        (Some(error), None) if error == paste::SUBMIT_ERROR => Some(paste::SUBMIT_ERROR),
         (Some(_), None) => Some("Couldn't paste — the dictation is saved in History."),
         (None, Some(_)) => Some("Dictation pasted, but it couldn't be saved to History."),
         (Some(_), Some(_)) => {
@@ -670,7 +709,7 @@ mod tests {
             &reqwest::Client::new(),
             &Arc::new(CooldownManager::new(None)),
             &unavailable_history(),
-            &CancellationToken::new(),
+            &PipelineRunContext::without_stage(CancellationToken::new()),
         )
         .await;
         assert!(matches!(result, PipelineCompletion::Empty));
@@ -696,7 +735,7 @@ mod tests {
             &reqwest::Client::new(),
             &Arc::new(CooldownManager::new(None)),
             &unavailable_history(),
-            &CancellationToken::new(),
+            &PipelineRunContext::without_stage(CancellationToken::new()),
         )
         .await;
         assert!(
@@ -721,10 +760,83 @@ mod tests {
             &reqwest::Client::new(),
             &Arc::new(CooldownManager::new(None)),
             &unavailable_history(),
-            &cancel,
+            &PipelineRunContext::without_stage(cancel),
         )
         .await;
         assert!(matches!(result, PipelineCompletion::Cancelled));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn command_without_a_body_stops_before_cleanup_or_history() {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", "/audio/transcriptions"))
+                .respond_with(json_encoded(
+                    serde_json::json!({"text": "execute...", "segments": []}),
+                )),
+        );
+        let path = dummy_wav();
+        let settings = Settings {
+            base_url: server.url_str("/"),
+            commands_beta_enabled: true,
+            ..Default::default()
+        };
+        let result = process_wav(
+            &path,
+            &settings,
+            "test-key",
+            &reqwest::Client::new(),
+            &Arc::new(CooldownManager::new(None)),
+            &unavailable_history(),
+            &PipelineRunContext::without_stage(CancellationToken::new()),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            PipelineCompletion::Error(message) if message == "Say something before execute."
+        ));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn execute_failure_stops_before_history_and_paste() {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", "/audio/transcriptions"))
+                .respond_with(json_encoded(
+                    serde_json::json!({"text": "what is ten times 52 execute", "segments": []}),
+                )),
+        );
+        server.expect(
+            Expectation::matching(request::method_path("POST", "/chat/completions"))
+                .times(3)
+                .respond_with(cycle![
+                    json_encoded(serde_json::json!({"choices": [{"message": {"content": "What is ten times 52?"}}]})),
+                    status_code(500),
+                    status_code(500),
+                ]),
+        );
+        let path = dummy_wav();
+        let settings = Settings {
+            base_url: server.url_str("/"),
+            commands_beta_enabled: true,
+            ..Default::default()
+        };
+        let result = process_wav(
+            &path,
+            &settings,
+            "test-key",
+            &reqwest::Client::new(),
+            &Arc::new(CooldownManager::new(None)),
+            &unavailable_history(),
+            &PipelineRunContext::without_stage(CancellationToken::new()),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            PipelineCompletion::Error(message) if message.starts_with("Couldn't answer that request:")
+        ));
         let _ = std::fs::remove_file(path);
     }
 }
@@ -736,7 +848,7 @@ async fn run_pipeline(
     client: reqwest::Client,
     cooldowns: Arc<CooldownManager>,
     history: Arc<Result<HistoryStore, String>>,
-    cancel: CancellationToken,
+    run_context: PipelineRunContext,
 ) -> PipelineCompletion {
     let wav_path = match tokio::task::spawn_blocking(move || recording.stop()).await {
         Ok(Ok(path)) => path,
@@ -753,7 +865,7 @@ async fn run_pipeline(
         &client,
         &cooldowns,
         history.as_ref(),
-        &cancel,
+        &run_context,
     )
     .await;
     let _ = tokio::fs::remove_file(&wav_path).await;
@@ -767,8 +879,9 @@ async fn process_wav(
     client: &reqwest::Client,
     cooldowns: &Arc<CooldownManager>,
     history: &Result<HistoryStore, String>,
-    cancel: &CancellationToken,
+    run_context: &PipelineRunContext,
 ) -> PipelineCompletion {
+    let cancel = &run_context.cancel;
     let wav_bytes = match tokio::fs::read(wav_path).await {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -797,6 +910,17 @@ async fn process_wav(
         return PipelineCompletion::Empty;
     }
 
+    let parsed = commands::parse(&raw, settings.commands_beta_enabled);
+    if parsed.action != CommandAction::Paste && parsed.body.is_empty() {
+        let command = match parsed.action {
+            CommandAction::Dispatch => "dispatch",
+            CommandAction::Execute => "execute",
+            CommandAction::Paste => unreachable!(),
+        };
+        return PipelineCompletion::Error(format!("Say something before {command}."));
+    }
+
+    let cleanup_input = parsed.body;
     let cleanup_request = CleanupRequest {
         base_url: settings.base_url.clone(),
         api_key: api_key.to_string(),
@@ -808,10 +932,37 @@ async fn process_wav(
         instruction_guard_enabled: settings.instruction_guard_enabled,
         timeout: Duration::from_secs(20),
     };
-    let cleanup = clean_with_fallback(client, cooldowns, &cleanup_request, &raw);
-    let (final_text, degraded) = tokio::select! {
+    let cleanup = clean_with_fallback(client, cooldowns, &cleanup_request, &cleanup_input);
+    let (cleaned_text, degraded) = tokio::select! {
         _ = cancel.cancelled() => return PipelineCompletion::Cancelled,
-        result = cleanup => resolve_cleanup(&raw, result)
+        result = cleanup => resolve_cleanup(&cleanup_input, result)
+    };
+    let final_text = if parsed.action == CommandAction::Execute {
+        if let Some((tx, run)) = &run_context.stage {
+            let _ = tx.send(CoreEvent::Executing { run: *run });
+        }
+        let request_text = if cleaned_text.trim().is_empty() {
+            cleanup_input.clone()
+        } else {
+            cleaned_text
+        };
+        let execute_request = ExecuteRequest {
+            base_url: settings.base_url.clone(),
+            api_key: api_key.to_string(),
+            primary_model: settings.cleanup_model.clone(),
+            fallback_model: settings.cleanup_fallback_model.clone(),
+            timeout: Duration::from_secs(20),
+        };
+        let execute = answer_with_fallback(client, cooldowns, &execute_request, &request_text);
+        tokio::select! {
+            _ = cancel.cancelled() => return PipelineCompletion::Cancelled,
+            result = execute => match result {
+                Ok(answer) => answer,
+                Err(error) => return PipelineCompletion::Error(format!("Couldn't answer that request: {error}")),
+            }
+        }
+    } else {
+        cleaned_text
     };
     if final_text.trim().is_empty() {
         return PipelineCompletion::Empty;
@@ -847,7 +998,14 @@ async fn process_wav(
                     let _ = store.delete(id);
                 }
             },
-            || paste::paste_text(&paste_text, &binding_vks, preserve_clipboard),
+            || {
+                paste::paste_text_with_submit(
+                    &paste_text,
+                    &binding_vks,
+                    preserve_clipboard,
+                    parsed.action == CommandAction::Dispatch,
+                )
+            },
         )
     })
     .await;

@@ -16,6 +16,7 @@ const VK_MENU: u16 = 0x12;
 const VK_LWIN: u16 = 0x5B;
 const VK_RWIN: u16 = 0x5C;
 const VK_V: u16 = 0x56;
+const VK_RETURN: u16 = 0x0D;
 const VK_LCONTROL: u16 = 0xA2;
 const VK_RCONTROL: u16 = 0xA3;
 const RELEASE_POLL_ATTEMPTS: usize = 80;
@@ -89,6 +90,22 @@ fn send(inputs: &[INPUT]) -> u32 {
 
 pub fn send_ctrl_v() -> bool {
     send_ctrl_v_with(send)
+}
+
+pub fn send_enter() -> bool {
+    send_enter_with(send)
+}
+
+fn send_enter_with(mut sender: impl FnMut(&[INPUT]) -> u32) -> bool {
+    let inputs = [key_input(VK_RETURN, false), key_input(VK_RETURN, true)];
+    let sent = sender(&inputs).min(inputs.len() as u32);
+    if sent == inputs.len() as u32 {
+        return true;
+    }
+    if sent >= 1 {
+        let _ = sender(&[key_input(VK_RETURN, true)]);
+    }
+    false
 }
 
 fn send_ctrl_v_with(mut sender: impl FnMut(&[INPUT]) -> u32) -> bool {
@@ -183,6 +200,41 @@ mod tests {
             |_| sleeps.set(sleeps.get() + 1),
         ));
         assert_eq!(sleeps.get(), RELEASE_POLL_ATTEMPTS);
+    }
+
+    #[test]
+    fn enter_is_marked_and_ordered() {
+        let calls = RefCell::new(Vec::new());
+        assert!(send_enter_with(|inputs| {
+            calls
+                .borrow_mut()
+                .push(inputs.iter().map(event).collect::<Vec<_>>());
+            inputs.len() as u32
+        }));
+        assert_eq!(
+            calls.borrow()[0],
+            vec![
+                (VK_RETURN, false, INJECT_SENTINEL),
+                (VK_RETURN, true, INJECT_SENTINEL),
+            ]
+        );
+    }
+
+    #[test]
+    fn partial_enter_delivery_releases_only_enter() {
+        let calls = RefCell::new(Vec::new());
+        let first = Cell::new(true);
+        assert!(!send_enter_with(|inputs| {
+            calls
+                .borrow_mut()
+                .push(inputs.iter().map(event).collect::<Vec<_>>());
+            if first.replace(false) {
+                1
+            } else {
+                inputs.len() as u32
+            }
+        }));
+        assert_eq!(calls.borrow()[1], vec![(VK_RETURN, true, INJECT_SENTINEL)]);
     }
 
     #[test]

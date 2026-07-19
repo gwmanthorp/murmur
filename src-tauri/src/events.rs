@@ -15,6 +15,7 @@ pub enum OverlayPhase {
     Initializing,
     Recording,
     Transcribing,
+    Executing,
     Error,
 }
 

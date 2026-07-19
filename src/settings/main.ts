@@ -63,9 +63,28 @@ root.innerHTML = `
         </div>
       </section>
 
-      <section class="shortcut-section" aria-labelledby="shortcuts-heading">
+      <section class="commands-section" aria-labelledby="commands-heading">
         <div class="section-heading">
           <span>03</span>
+          <div><h2 id="commands-heading">Commands <em>Beta</em></h2><p>Terminal spoken words can submit text or request an answer.</p></div>
+        </div>
+        <div class="commands-control">
+          <label class="beta-toggle" for="commands-beta">
+            <span><strong>Enable voice commands</strong><small>Off by default. Commands apply only to the final spoken word.</small></span>
+            <input id="commands-beta" type="checkbox" />
+            <i aria-hidden="true"></i>
+          </label>
+          <dl class="command-ledger">
+            <div><dt>… dispatch</dt><dd>Paste the preceding text, then press Enter.</dd></div>
+            <div><dt>… execute</dt><dd>Ask the configured model and paste its concise answer.</dd></div>
+          </dl>
+          <p class="command-warning"><strong>Dispatch sends Enter to the focused app.</strong> Murmur cannot verify that the cursor is in a text field.</p>
+        </div>
+      </section>
+
+      <section class="shortcut-section" aria-labelledby="shortcuts-heading">
+        <div class="section-heading">
+          <span>04</span>
           <div><h2 id="shortcuts-heading">Shortcuts</h2><p>Rebinding arrives with the full settings pass.</p></div>
         </div>
         <dl>
@@ -95,6 +114,7 @@ const save = document.querySelector<HTMLButtonElement>("#save")!;
 const validate = document.querySelector<HTMLButtonElement>("#validate")!;
 const clearKey = document.querySelector<HTMLButtonElement>("#clear-key")!;
 const keyState = document.querySelector<HTMLElement>(".key-state")!;
+const commandsBeta = document.querySelector<HTMLInputElement>("#commands-beta")!;
 
 let current: PublicSettings | undefined;
 
@@ -118,6 +138,7 @@ function render(settings: PublicSettings): void {
   microphone.value = settings.micDevice ?? "";
   document.querySelector("#hold-shortcut")!.textContent = settings.holdShortcut;
   document.querySelector("#toggle-shortcut")!.textContent = settings.toggleShortcut;
+  commandsBeta.checked = settings.commandsBetaEnabled;
 }
 
 function selectedDictationMode(): "fast" | "polished" {
@@ -160,6 +181,7 @@ clearKey.addEventListener("click", async () => {
         baseUrl: baseUrl.value,
         dictationMode: selectedDictationMode(),
         micDevice: microphone.value || undefined,
+        commandsBetaEnabled: commandsBeta.checked,
       }),
     );
     setStatus("Saved API key removed.", "success");
@@ -182,6 +204,7 @@ form.addEventListener("submit", async (event) => {
         baseUrl: baseUrl.value,
         dictationMode: selectedDictationMode(),
         micDevice: microphone.value || undefined,
+        commandsBetaEnabled: commandsBeta.checked,
       }),
     );
     setStatus("Dictation settings saved.", "success");

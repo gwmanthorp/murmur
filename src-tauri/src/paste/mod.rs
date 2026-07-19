@@ -4,6 +4,7 @@ pub mod inject;
 use std::time::Duration;
 
 pub const MODIFIER_RELEASE_ERROR: &str = "Release modifier keys, then use Paste Again.";
+pub const SUBMIT_ERROR: &str = "Text pasted, but Enter could not be sent.";
 
 /// Paste `text` at the cursor of the focused app (port of FreeFlow's
 /// pasteAtCursor pipeline):
@@ -17,6 +18,15 @@ pub const MODIFIER_RELEASE_ERROR: &str = "Release modifier keys, then use Paste 
 ///
 /// Blocking; call from a blocking-ok thread.
 pub fn paste_text(text: &str, binding_vks: &[u16], preserve_clipboard: bool) -> Result<(), String> {
+    paste_text_with_submit(text, binding_vks, preserve_clipboard, false)
+}
+
+pub fn paste_text_with_submit(
+    text: &str,
+    binding_vks: &[u16],
+    preserve_clipboard: bool,
+    submit: bool,
+) -> Result<(), String> {
     if !inject::wait_for_keys_released(binding_vks) {
         return Err(MODIFIER_RELEASE_ERROR.into());
     }
@@ -47,11 +57,16 @@ pub fn paste_text(text: &str, binding_vks: &[u16], preserve_clipboard: bool) -> 
             }
         });
     }
-    if injected {
-        Ok(())
-    } else {
-        Err("Windows could not send Ctrl+V".into())
+    if !injected {
+        return Err("Windows could not send Ctrl+V".into());
     }
+    if submit {
+        std::thread::sleep(Duration::from_millis(40));
+        if !inject::send_enter() {
+            return Err(SUBMIT_ERROR.into());
+        }
+    }
+    Ok(())
 }
 
 fn text_for_paste(text: &str) -> String {
@@ -89,5 +104,10 @@ mod tests {
             MODIFIER_RELEASE_ERROR,
             "Release modifier keys, then use Paste Again."
         );
+    }
+
+    #[test]
+    fn submit_failure_message_is_specific() {
+        assert_eq!(SUBMIT_ERROR, "Text pasted, but Enter could not be sent.");
     }
 }
