@@ -1,0 +1,98 @@
+:root {
+  --bg: #16161a;
+  --bg-raised: #1f1f24;
+  --bg-input: #26262c;
+  --border: #34343c;
+  --text: #ececf1;
+  --text-dim: #9b9ba6;
+  --accent: #7aa2f7;
+  --accent-hover: #90b3ff;
+  --danger: #f7768e;
+  --ok: #9ece6a;
+  --radius: 8px;
+  --font:
+    "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+button {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--bg-input);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #101018;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+input[type="text"],
+input[type="password"],
+select,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  outline: none;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+label {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
