@@ -39,11 +39,27 @@ root.innerHTML = `
       <section class="form-section" aria-labelledby="capture-heading">
         <div class="section-heading">
           <span>02</span>
-          <div><h2 id="capture-heading">Capture</h2><p>Choose the microphone Murmur opens for each dictation.</p></div>
+          <div><h2 id="capture-heading">Capture</h2><p>Balance response time and recognition accuracy, then choose your microphone.</p></div>
         </div>
-        <div class="field">
+        <div class="capture-fields">
+          <fieldset class="mode-picker">
+            <legend>Dictation mode</legend>
+            <div class="mode-options">
+              <label class="mode-option">
+                <input type="radio" name="dictation-mode" value="fast" />
+                <span><strong>Fast</strong><small>Whisper Turbo · quickest response</small></span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="dictation-mode" value="polished" />
+                <span><strong>Polished</strong><small>Whisper Large v3 · best accuracy</small></span>
+              </label>
+            </div>
+            <p class="helper">Both modes still apply Murmur's cleanup pass.</p>
+          </fieldset>
+          <div class="field">
           <label for="microphone">Microphone</label>
           <select id="microphone"><option value="">System default</option></select>
+          </div>
         </div>
       </section>
 
@@ -71,6 +87,9 @@ const form = document.querySelector<HTMLFormElement>("#settings-form")!;
 const apiKey = document.querySelector<HTMLInputElement>("#api-key")!;
 const baseUrl = document.querySelector<HTMLInputElement>("#base-url")!;
 const microphone = document.querySelector<HTMLSelectElement>("#microphone")!;
+const dictationModes = Array.from(
+  document.querySelectorAll<HTMLInputElement>('input[name="dictation-mode"]'),
+);
 const status = document.querySelector<HTMLElement>("#status")!;
 const save = document.querySelector<HTMLButtonElement>("#save")!;
 const validate = document.querySelector<HTMLButtonElement>("#validate")!;
@@ -91,12 +110,20 @@ function render(settings: PublicSettings): void {
   keyState.dataset.configured = String(settings.apiKeyConfigured);
   keyState.querySelector("strong")!.textContent = settings.apiKeyConfigured ? "Key protected" : "Key needed";
   clearKey.disabled = !settings.apiKeyConfigured;
+  const selectedMode = dictationModes.find((input) => input.value === settings.dictationMode);
+  if (selectedMode) selectedMode.checked = true;
 
   microphone.replaceChildren(new Option("System default", ""));
   settings.micDevices.forEach((device) => microphone.add(new Option(device, device)));
   microphone.value = settings.micDevice ?? "";
   document.querySelector("#hold-shortcut")!.textContent = settings.holdShortcut;
   document.querySelector("#toggle-shortcut")!.textContent = settings.toggleShortcut;
+}
+
+function selectedDictationMode(): "fast" | "polished" {
+  return dictationModes.find((input) => input.checked)?.value === "fast"
+    ? "fast"
+    : "polished";
 }
 
 async function load(): Promise<void> {
@@ -131,6 +158,7 @@ clearKey.addEventListener("click", async () => {
       await commands.saveSettings({
         clearApiKey: true,
         baseUrl: baseUrl.value,
+        dictationMode: selectedDictationMode(),
         micDevice: microphone.value || undefined,
       }),
     );
@@ -152,6 +180,7 @@ form.addEventListener("submit", async (event) => {
         apiKey: apiKey.value || undefined,
         clearApiKey: false,
         baseUrl: baseUrl.value,
+        dictationMode: selectedDictationMode(),
         micDevice: microphone.value || undefined,
       }),
     );

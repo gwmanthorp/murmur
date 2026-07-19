@@ -4,6 +4,23 @@ use crate::api::models;
 use crate::hotkeys::bindings::{VK_F9, VK_RCONTROL};
 use crate::hotkeys::ShortcutBinding;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DictationMode {
+    Fast,
+    #[default]
+    Polished,
+}
+
+impl DictationMode {
+    pub const fn transcription_model(self) -> &'static str {
+        match self {
+            Self::Fast => models::FAST_TRANSCRIPTION_MODEL,
+            Self::Polished => models::DEFAULT_TRANSCRIPTION_MODEL,
+        }
+    }
+}
+
 /// Persisted settings (settings.json). The API key is stored as a DPAPI blob
 /// in `api_key_dpapi`, never plaintext; the in-memory decrypted key lives
 /// only in `Secrets`.
@@ -13,6 +30,7 @@ pub struct Settings {
     pub version: u32,
     pub api_key_dpapi: String,
     pub base_url: String,
+    pub dictation_mode: DictationMode,
     pub transcription_model: String,
     pub cleanup_model: String,
     pub cleanup_fallback_model: String,
@@ -37,6 +55,7 @@ impl Default for Settings {
             version: 1,
             api_key_dpapi: String::new(),
             base_url: models::DEFAULT_BASE_URL.into(),
+            dictation_mode: DictationMode::default(),
             transcription_model: models::DEFAULT_TRANSCRIPTION_MODEL.into(),
             cleanup_model: models::DEFAULT_CLEANUP_MODEL.into(),
             cleanup_fallback_model: models::DEFAULT_CLEANUP_FALLBACK_MODEL.into(),
@@ -61,6 +80,7 @@ impl Default for Settings {
 pub struct PublicSettings {
     pub api_key_configured: bool,
     pub base_url: String,
+    pub dictation_mode: DictationMode,
     pub mic_device: Option<String>,
     pub mic_devices: Vec<String>,
     pub hold_shortcut: String,
@@ -75,5 +95,41 @@ pub struct SaveSettingsInput {
     #[serde(default)]
     pub clear_api_key: bool,
     pub base_url: String,
+    pub dictation_mode: DictationMode,
     pub mic_device: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn polished_is_the_backwards_compatible_default() {
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.dictation_mode, DictationMode::Polished);
+        assert_eq!(
+            settings.dictation_mode.transcription_model(),
+            "whisper-large-v3"
+        );
+    }
+
+    #[test]
+    fn fast_mode_selects_whisper_turbo() {
+        assert_eq!(
+            DictationMode::Fast.transcription_model(),
+            "whisper-large-v3-turbo"
+        );
+    }
+
+    #[test]
+    fn dictation_mode_round_trips_as_lowercase_json() {
+        let settings = Settings {
+            dictation_mode: DictationMode::Fast,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains(r#""dictationMode":"fast""#));
+        let decoded: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.dictation_mode, DictationMode::Fast);
+    }
 }
