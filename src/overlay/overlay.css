@@ -42,7 +42,8 @@ body { padding: var(--pill-space-2); font-family: "Segoe UI Variable Text", "Seg
 .overlay-shell[data-phase="recording"] .waveform { display: flex; }
 
 .spinner { width: 17px; height: 17px; display: none; border: 2px solid var(--pill-border); border-top-color: var(--pill-signal); border-radius: 50%; animation: spin 800ms linear infinite; }
-.overlay-shell[data-phase="transcribing"] .spinner { display: block; }
+.overlay-shell[data-phase="transcribing"] .spinner,
+.overlay-shell[data-phase="executing"] .spinner { display: block; }
 
 .pulse { display: none; gap: var(--pill-space-1); }
 .pulse i { width: 5px; height: 5px; border-radius: 50%; background: var(--pill-subtle); animation: pulse 900ms ease-in-out infinite alternate; }

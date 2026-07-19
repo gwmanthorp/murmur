@@ -2,6 +2,7 @@
 
 mod api;
 mod audio;
+mod commands;
 mod core;
 mod events;
 mod history;

@@ -32,6 +32,7 @@ function render(state: OverlayState): void {
       initializing: "Opening microphone",
       recording: "Listening",
       transcribing: "Turning speech into text",
+      executing: "Answering request",
       error: "Something went wrong",
     } satisfies Record<OverlayState["phase"], string>)[state.phase];
 }

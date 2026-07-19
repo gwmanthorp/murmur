@@ -8,6 +8,7 @@ export type OverlayPhase =
   | "initializing"
   | "recording"
   | "transcribing"
+  | "executing"
   | "error";
 
 export interface OverlayState {
@@ -25,6 +26,7 @@ export interface PublicSettings {
   holdShortcut: string;
   toggleShortcut: string;
   preserveClipboard: boolean;
+  commandsBetaEnabled: boolean;
 }
 
 export interface SaveSettingsInput {
@@ -33,6 +35,7 @@ export interface SaveSettingsInput {
   baseUrl: string;
   dictationMode: DictationMode;
   micDevice?: string;
+  commandsBetaEnabled: boolean;
 }
 
 export type DictationMode = "fast" | "polished";
