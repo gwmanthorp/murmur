@@ -10,7 +10,8 @@ use crate::api::cleanup::{clean_with_fallback, CleanupError, CleanupOutcome, Cle
 use crate::api::cooldown::CooldownManager;
 use crate::api::transcription::{self, TranscriptionRequest};
 use crate::audio::RecordingHandle;
-use crate::events::{OverlayPhase, PipelineResult, PIPELINE_RESULT};
+use crate::events::{OverlayPhase, PipelineResult, HISTORY_CHANGED, PIPELINE_RESULT};
+use crate::history::{HistoryEntry, HistoryStore};
 use crate::hotkeys::{SessionEvent, ShortcutEngineHandle, TriggerMode};
 use crate::overlay::Overlay;
 use crate::settings::model::{PublicSettings, SaveSettingsInput, Settings};
@@ -41,10 +42,22 @@ pub(crate) enum CoreEvent {
 }
 
 pub(crate) enum PipelineCompletion {
-    Success(PipelineResult),
+    Completed {
+        result: PipelineResult,
+        history_error: Option<String>,
+        paste_error: Option<String>,
+    },
     Empty,
     Cancelled,
     Error(String),
+}
+
+enum BlockingFinalization {
+    Cancelled,
+    Finished {
+        history_error: Option<String>,
+        paste_error: Option<String>,
+    },
 }
 
 enum CoordinatorState {
@@ -70,6 +83,7 @@ pub struct AppCore {
     overlay: Arc<Overlay>,
     client: reqwest::Client,
     cooldowns: Arc<CooldownManager>,
+    history: Arc<Result<HistoryStore, String>>,
     engine: OnceLock<Arc<ShortcutEngineHandle>>,
 }
 
@@ -78,10 +92,15 @@ impl AppCore {
         let persisted = settings::store::load();
         let api_key = settings::dpapi::decrypt(&persisted.api_key_dpapi).unwrap_or_default();
         let (tx, rx) = mpsc::unbounded_channel();
+        let history = HistoryStore::initialize(settings::store::history_path()).map_err(|error| {
+            tracing::warn!("history unavailable: {error}");
+            error
+        });
         let core = Arc::new(Self {
             overlay: Arc::new(Overlay::new(app.clone())),
             client: reqwest::Client::new(),
             cooldowns: Arc::new(CooldownManager::new(Some(settings::store::state_path()))),
+            history: Arc::new(history),
             settings: Arc::new(RwLock::new(persisted)),
             api_key: Arc::new(RwLock::new(api_key)),
             last_text: Arc::new(RwLock::new(None)),
@@ -151,6 +170,24 @@ impl AppCore {
         sound::play(sound::Cue::Error, enabled);
         self.overlay
             .set_state(OverlayPhase::Error, false, Some(message));
+    }
+
+    fn finish_completed_run(
+        &self,
+        result: PipelineResult,
+        history_error: Option<String>,
+        paste_error: Option<String>,
+    ) {
+        *self.last_text.write().unwrap() = Some(result.final_text.clone());
+        tray::set_runtime_state(&self.app, RuntimePhase::Idle, true);
+        let _ = self.app.emit(PIPELINE_RESULT, result);
+        if history_error.is_none() {
+            let _ = self.app.emit(HISTORY_CHANGED, ());
+        }
+        match completion_notice(paste_error.as_deref(), history_error.as_deref()) {
+            None => self.overlay.hide(),
+            Some(message) => self.show_error(message.into()),
+        }
     }
 
     async fn run(self: Arc<Self>, mut rx: mpsc::UnboundedReceiver<CoreEvent>) {
@@ -287,11 +324,12 @@ impl AppCore {
                     self.set_processing(false);
                     self.set_phase(RuntimePhase::Idle);
                     match result {
-                        PipelineCompletion::Success(result) => {
-                            *self.last_text.write().unwrap() = Some(result.final_text.clone());
-                            tray::set_runtime_state(&self.app, RuntimePhase::Idle, true);
-                            let _ = self.app.emit(PIPELINE_RESULT, result);
-                            self.overlay.hide();
+                        PipelineCompletion::Completed {
+                            result,
+                            history_error,
+                            paste_error,
+                        } => {
+                            self.finish_completed_run(result, history_error, paste_error);
                         }
                         PipelineCompletion::Empty | PipelineCompletion::Cancelled => {
                             self.overlay.hide();
@@ -309,10 +347,13 @@ impl AppCore {
         let api_key = self.api_key.read().unwrap().clone();
         let client = self.client.clone();
         let cooldowns = self.cooldowns.clone();
+        let history = self.history.clone();
 
         tauri::async_runtime::spawn(async move {
-            let completion =
-                run_pipeline(recording, settings, api_key, client, cooldowns, cancel).await;
+            let completion = run_pipeline(
+                recording, settings, api_key, client, cooldowns, history, cancel,
+            )
+            .await;
             let _ = tx.send(CoreEvent::PipelineFinished {
                 run,
                 result: completion,
@@ -398,6 +439,52 @@ impl AppCore {
         .await
         .map_err(|error| error.to_string())?
     }
+
+    fn history_store(&self) -> Result<HistoryStore, String> {
+        match self.history.as_ref() {
+            Ok(store) => Ok(store.clone()),
+            Err(error) => Err(error.clone()),
+        }
+    }
+
+    pub async fn history_entries(&self) -> Result<Vec<HistoryEntry>, String> {
+        let store = self.history_store()?;
+        tokio::task::spawn_blocking(move || store.list())
+            .await
+            .map_err(|error| format!("Could not load History: {error}"))?
+    }
+
+    pub async fn copy_history(&self, id: i64) -> Result<(), String> {
+        let store = self.history_store()?;
+        tokio::task::spawn_blocking(move || {
+            let text = store.text(id)?;
+            if paste::clipboard::set_text(&text) {
+                Ok(())
+            } else {
+                Err("Could not write the dictation to the clipboard".into())
+            }
+        })
+        .await
+        .map_err(|error| format!("Could not copy from History: {error}"))?
+    }
+
+    pub async fn delete_history(&self, id: i64) -> Result<(), String> {
+        let store = self.history_store()?;
+        tokio::task::spawn_blocking(move || store.delete(id))
+            .await
+            .map_err(|error| format!("Could not delete from History: {error}"))??;
+        let _ = self.app.emit(HISTORY_CHANGED, ());
+        Ok(())
+    }
+
+    pub async fn clear_history_entries(&self) -> Result<(), String> {
+        let store = self.history_store()?;
+        tokio::task::spawn_blocking(move || store.clear())
+            .await
+            .map_err(|error| format!("Could not clear History: {error}"))??;
+        let _ = self.app.emit(HISTORY_CHANGED, ());
+        Ok(())
+    }
 }
 
 fn binding_vks(settings: &Settings) -> Vec<u16> {
@@ -408,6 +495,45 @@ fn binding_vks(settings: &Settings) -> Vec<u16> {
         }
     }
     keys
+}
+
+fn completion_notice(
+    paste_error: Option<&str>,
+    history_error: Option<&str>,
+) -> Option<&'static str> {
+    match (paste_error, history_error) {
+        (None, None) => None,
+        (Some(_), None) => Some("Couldn't paste — the dictation is saved in History."),
+        (None, Some(_)) => Some("Dictation pasted, but it couldn't be saved to History."),
+        (Some(_), Some(_)) => {
+            Some("Couldn't paste or save to History. Use Paste Again before quitting.")
+        }
+    }
+}
+
+fn persist_then_paste<Save, Cancelled, Rollback, Paste>(
+    save: Save,
+    cancelled: Cancelled,
+    rollback: Rollback,
+    paste: Paste,
+) -> BlockingFinalization
+where
+    Save: FnOnce() -> Result<i64, String>,
+    Cancelled: FnOnce() -> bool,
+    Rollback: FnOnce(i64),
+    Paste: FnOnce() -> Result<(), String>,
+{
+    let history_result = save();
+    if cancelled() {
+        if let Ok(id) = history_result {
+            rollback(id);
+        }
+        return BlockingFinalization::Cancelled;
+    }
+    BlockingFinalization::Finished {
+        history_error: history_result.err(),
+        paste_error: paste().err(),
+    }
 }
 
 #[cfg(test)]
@@ -428,6 +554,10 @@ mod tests {
         path
     }
 
+    fn unavailable_history() -> Result<HistoryStore, String> {
+        Err("History unavailable in this test".into())
+    }
+
     #[test]
     fn paste_waits_for_unique_keys_from_both_bindings() {
         let mut settings = Settings::default();
@@ -444,6 +574,72 @@ mod tests {
         );
         assert_eq!(text, "raw dictation");
         assert!(degraded);
+    }
+
+    #[test]
+    fn completion_notices_cover_partial_failures() {
+        assert_eq!(completion_notice(None, None), None);
+        assert_eq!(
+            completion_notice(Some("paste"), None),
+            Some("Couldn't paste — the dictation is saved in History.")
+        );
+        assert_eq!(
+            completion_notice(None, Some("history")),
+            Some("Dictation pasted, but it couldn't be saved to History.")
+        );
+        assert_eq!(
+            completion_notice(Some("paste"), Some("history")),
+            Some("Couldn't paste or save to History. Use Paste Again before quitting.")
+        );
+    }
+
+    #[test]
+    fn finalization_persists_before_paste_even_when_history_fails() {
+        let calls = std::sync::Mutex::new(Vec::new());
+        let completion = persist_then_paste(
+            || {
+                calls.lock().unwrap().push("history");
+                Err("disk full".into())
+            },
+            || false,
+            |_| calls.lock().unwrap().push("rollback"),
+            || {
+                calls.lock().unwrap().push("paste");
+                Ok(())
+            },
+        );
+        assert_eq!(*calls.lock().unwrap(), vec!["history", "paste"]);
+        assert!(matches!(
+            completion,
+            BlockingFinalization::Finished {
+                history_error: Some(_),
+                paste_error: None
+            }
+        ));
+    }
+
+    #[test]
+    fn cancellation_after_save_rolls_back_without_pasting() {
+        let calls = std::sync::Mutex::new(Vec::new());
+        let completion = persist_then_paste(
+            || {
+                calls.lock().unwrap().push("history");
+                Ok(42)
+            },
+            || true,
+            |id| {
+                calls
+                    .lock()
+                    .unwrap()
+                    .push(if id == 42 { "rollback" } else { "wrong" })
+            },
+            || {
+                calls.lock().unwrap().push("paste");
+                Ok(())
+            },
+        );
+        assert_eq!(*calls.lock().unwrap(), vec!["history", "rollback"]);
+        assert!(matches!(completion, BlockingFinalization::Cancelled));
     }
 
     #[tokio::test]
@@ -466,6 +662,7 @@ mod tests {
             "test-key",
             &reqwest::Client::new(),
             &Arc::new(CooldownManager::new(None)),
+            &unavailable_history(),
             &CancellationToken::new(),
         )
         .await;
@@ -491,6 +688,7 @@ mod tests {
             "bad-key",
             &reqwest::Client::new(),
             &Arc::new(CooldownManager::new(None)),
+            &unavailable_history(),
             &CancellationToken::new(),
         )
         .await;
@@ -515,6 +713,7 @@ mod tests {
             "test-key",
             &reqwest::Client::new(),
             &Arc::new(CooldownManager::new(None)),
+            &unavailable_history(),
             &cancel,
         )
         .await;
@@ -529,6 +728,7 @@ async fn run_pipeline(
     api_key: String,
     client: reqwest::Client,
     cooldowns: Arc<CooldownManager>,
+    history: Arc<Result<HistoryStore, String>>,
     cancel: CancellationToken,
 ) -> PipelineCompletion {
     let wav_path = match tokio::task::spawn_blocking(move || recording.stop()).await {
@@ -539,7 +739,16 @@ async fn run_pipeline(
         }
     };
 
-    let result = process_wav(&wav_path, &settings, &api_key, &client, &cooldowns, &cancel).await;
+    let result = process_wav(
+        &wav_path,
+        &settings,
+        &api_key,
+        &client,
+        &cooldowns,
+        history.as_ref(),
+        &cancel,
+    )
+    .await;
     let _ = tokio::fs::remove_file(&wav_path).await;
     result
 }
@@ -550,6 +759,7 @@ async fn process_wav(
     api_key: &str,
     client: &reqwest::Client,
     cooldowns: &Arc<CooldownManager>,
+    history: &Result<HistoryStore, String>,
     cancel: &CancellationToken,
 ) -> PipelineCompletion {
     let wav_bytes = match tokio::fs::read(wav_path).await {
@@ -603,21 +813,52 @@ async fn process_wav(
         return PipelineCompletion::Cancelled;
     }
 
-    let paste_text = final_text.clone();
+    let result = PipelineResult {
+        raw_transcript: raw,
+        final_text: final_text.clone(),
+        degraded,
+    };
+    let history_store = match history {
+        Ok(store) => Ok(store.clone()),
+        Err(error) => Err(error.clone()),
+    };
+    let rollback_store = history.as_ref().ok().cloned();
+    let history_text = final_text.clone();
+    let paste_text = final_text;
     let binding_vks = binding_vks(settings);
     let preserve_clipboard = settings.preserve_clipboard;
-    let paste_result = tokio::task::spawn_blocking(move || {
-        paste::paste_text(&paste_text, &binding_vks, preserve_clipboard)
+    let worker_cancel = cancel.clone();
+    let finalization = tokio::task::spawn_blocking(move || {
+        persist_then_paste(
+            || match history_store {
+                Ok(store) => store.insert(&history_text),
+                Err(error) => Err(error),
+            },
+            || worker_cancel.is_cancelled(),
+            |id| {
+                if let Some(store) = rollback_store {
+                    let _ = store.delete(id);
+                }
+            },
+            || paste::paste_text(&paste_text, &binding_vks, preserve_clipboard),
+        )
     })
     .await;
-    match paste_result {
-        Ok(Ok(())) => PipelineCompletion::Success(PipelineResult {
-            raw_transcript: raw,
-            final_text,
-            degraded,
-        }),
-        Ok(Err(error)) => PipelineCompletion::Error(error),
-        Err(error) => PipelineCompletion::Error(format!("Could not paste: {error}")),
+    match finalization {
+        Ok(BlockingFinalization::Cancelled) => PipelineCompletion::Cancelled,
+        Ok(BlockingFinalization::Finished {
+            history_error,
+            paste_error,
+        }) => PipelineCompletion::Completed {
+            result,
+            history_error,
+            paste_error,
+        },
+        Err(error) => PipelineCompletion::Completed {
+            result,
+            history_error: Some(format!("Could not finish History: {error}")),
+            paste_error: Some(format!("Could not finish paste: {error}")),
+        },
     }
 }
 
@@ -661,4 +902,32 @@ pub fn stop_dictating(core: tauri::State<'_, Arc<AppCore>>) {
 #[tauri::command]
 pub async fn paste_again(core: tauri::State<'_, Arc<AppCore>>) -> Result<(), String> {
     core.paste_again().await
+}
+
+#[tauri::command]
+pub async fn get_history(
+    core: tauri::State<'_, Arc<AppCore>>,
+) -> Result<Vec<HistoryEntry>, String> {
+    core.history_entries().await
+}
+
+#[tauri::command]
+pub async fn copy_history_entry(
+    core: tauri::State<'_, Arc<AppCore>>,
+    id: i64,
+) -> Result<(), String> {
+    core.copy_history(id).await
+}
+
+#[tauri::command]
+pub async fn delete_history_entry(
+    core: tauri::State<'_, Arc<AppCore>>,
+    id: i64,
+) -> Result<(), String> {
+    core.delete_history(id).await
+}
+
+#[tauri::command]
+pub async fn clear_history(core: tauri::State<'_, Arc<AppCore>>) -> Result<(), String> {
+    core.clear_history_entries().await
 }

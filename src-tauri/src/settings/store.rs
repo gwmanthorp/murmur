@@ -23,6 +23,10 @@ pub fn state_path() -> PathBuf {
     config_dir().join("state.json")
 }
 
+pub fn history_path() -> PathBuf {
+    config_dir().join("history.db")
+}
+
 pub fn load() -> Settings {
     let path = settings_path();
     match std::fs::read_to_string(&path) {

@@ -4,6 +4,7 @@ mod api;
 mod audio;
 mod core;
 mod events;
+mod history;
 mod hotkeys;
 mod overlay;
 mod paste;
@@ -24,6 +25,14 @@ fn ping() -> String {
 
 fn show_settings(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+fn show_history(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("history") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
@@ -53,6 +62,10 @@ fn main() {
             core::validate_credentials,
             core::stop_dictating,
             core::paste_again,
+            core::get_history,
+            core::copy_history_entry,
+            core::delete_history_entry,
+            core::clear_history,
         ])
         .setup(|app| {
             let tray_state = tray::init(app.handle())?;
