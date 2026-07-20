@@ -4,61 +4,47 @@
 use std::time::Duration;
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-    KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+    VIRTUAL_KEY,
 };
 
-use crate::hotkeys::hook::INJECT_SENTINEL;
+use crate::hotkeys::bindings::MODIFIER_VKS;
+use crate::hotkeys::hook::{physical_key_down, INJECT_SENTINEL};
 
-const VK_SHIFT: u16 = 0x10;
-const VK_CONTROL: u16 = 0x11;
-const VK_MENU: u16 = 0x12;
-const VK_LWIN: u16 = 0x5B;
-const VK_RWIN: u16 = 0x5C;
 const VK_V: u16 = 0x56;
 const VK_RETURN: u16 = 0x0D;
 const VK_LCONTROL: u16 = 0xA2;
-const VK_RCONTROL: u16 = 0xA3;
 const RELEASE_POLL_ATTEMPTS: usize = 80;
 
-fn key_down(vk: u16) -> bool {
-    unsafe { (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0 }
-}
-
-/// Wait until the trigger keys and all generic modifiers are physically
+/// Wait until the trigger keys and all left/right modifiers are physically
 /// released, so a still-held Right Ctrl doesn't corrupt the synthetic Ctrl+V.
 /// Polls for up to two seconds, then applies a 30ms settle delay.
-pub fn wait_for_keys_released(binding_vks: &[u16]) -> bool {
-    wait_for_keys_released_with(binding_vks, key_down, std::thread::sleep)
+pub fn wait_for_keys_released(binding_vks: &[u16]) -> Result<(), Vec<u16>> {
+    wait_for_keys_released_with(binding_vks, physical_key_down, std::thread::sleep)
 }
 
 fn wait_for_keys_released_with(
     binding_vks: &[u16],
     is_down: impl Fn(u16) -> bool,
     sleep: impl Fn(Duration),
-) -> bool {
+) -> Result<(), Vec<u16>> {
     let mut watch: Vec<u16> = binding_vks.to_vec();
-    watch.extend_from_slice(&[
-        VK_SHIFT,
-        VK_CONTROL,
-        VK_LCONTROL,
-        VK_RCONTROL,
-        VK_MENU,
-        VK_LWIN,
-        VK_RWIN,
-    ]);
+    watch.extend_from_slice(&MODIFIER_VKS);
     watch.sort_unstable();
     watch.dedup();
     for attempt in 0..=RELEASE_POLL_ATTEMPTS {
-        if watch.iter().all(|&vk| !is_down(vk)) {
+        let held: Vec<u16> = watch.iter().copied().filter(|&vk| is_down(vk)).collect();
+        if held.is_empty() {
             sleep(Duration::from_millis(30));
-            return true;
+            return Ok(());
         }
         if attempt < RELEASE_POLL_ATTEMPTS {
             sleep(Duration::from_millis(25));
+        } else {
+            return Err(held);
         }
     }
-    false
+    unreachable!("release loop always returns")
 }
 
 fn key_input(vk: u16, up: bool) -> INPUT {
@@ -132,6 +118,7 @@ fn send_ctrl_v_with(mut sender: impl FnMut(&[INPUT]) -> u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hotkeys::bindings::VK_RCONTROL;
     use std::cell::{Cell, RefCell};
 
     fn event(input: &INPUT) -> (u16, bool, usize) {
@@ -194,11 +181,14 @@ mod tests {
     #[test]
     fn modifier_timeout_returns_false_without_settle_delay() {
         let sleeps = Cell::new(0usize);
-        assert!(!wait_for_keys_released_with(
-            &[],
-            |vk| vk == VK_CONTROL,
-            |_| sleeps.set(sleeps.get() + 1),
-        ));
+        assert_eq!(
+            wait_for_keys_released_with(
+                &[],
+                |vk| vk == VK_LCONTROL,
+                |_| sleeps.set(sleeps.get() + 1),
+            ),
+            Err(vec![VK_LCONTROL])
+        );
         assert_eq!(sleeps.get(), RELEASE_POLL_ATTEMPTS);
     }
 
@@ -244,7 +234,24 @@ mod tests {
             &[VK_RCONTROL],
             |_| false,
             |delay| durations.borrow_mut().push(delay),
-        ));
+        )
+        .is_ok());
         assert_eq!(durations.into_inner(), vec![Duration::from_millis(30)]);
+    }
+
+    #[test]
+    fn observed_release_wins_over_a_stale_async_ctrl_state() {
+        // The injected release barrier receives hook-observed state. A stale
+        // Win32 async state therefore cannot falsely keep Right Ctrl held.
+        assert!(wait_for_keys_released_with(&[VK_RCONTROL], |_| false, |_| {}).is_ok());
+    }
+
+    #[test]
+    fn repeated_right_control_cycles_finish_released() {
+        for _ in 0..100 {
+            let down = std::cell::Cell::new(true);
+            down.set(false);
+            assert!(wait_for_keys_released_with(&[VK_RCONTROL], |_| down.get(), |_| {}).is_ok());
+        }
     }
 }
