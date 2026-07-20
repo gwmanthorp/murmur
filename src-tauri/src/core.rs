@@ -264,6 +264,14 @@ impl AppCore {
                         mode == TriggerMode::Toggle,
                         None,
                     );
+                    let sounds_enabled = self.settings.read().unwrap().sounds_enabled;
+                    let cue_result = tokio::task::spawn_blocking(move || {
+                        sound::play_blocking(sound::Cue::Start, sounds_enabled)
+                    })
+                    .await;
+                    if let Err(error) = cue_result {
+                        tracing::warn!("start cue worker failed: {error}");
+                    }
                     // Mute before opening the microphone so no playback can leak into
                     // even the first captured audio buffer. Failure is intentionally
                     // non-fatal: microphone dictation still remains useful.
@@ -287,8 +295,6 @@ impl AppCore {
 
                     match start_result {
                         Ok(Ok(handle)) => {
-                            let enabled = self.settings.read().unwrap().sounds_enabled;
-                            sound::play(sound::Cue::Start, enabled);
                             self.set_phase(RuntimePhase::Recording);
                             self.overlay.set_state(
                                 OverlayPhase::Recording,
