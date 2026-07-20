@@ -93,12 +93,20 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
-            if let RunEvent::ExitRequested { api, code, .. } = event {
+        .run(|app, event| match event {
+            RunEvent::ExitRequested { api, code, .. } => {
                 // Keep running with no visible windows unless Quit was chosen.
                 if code.is_none() {
                     api.prevent_exit();
+                } else if let Some(core) = app.try_state::<Arc<core::AppCore>>() {
+                    core.restore_output_now();
                 }
             }
+            RunEvent::Exit => {
+                if let Some(core) = app.try_state::<Arc<core::AppCore>>() {
+                    core.restore_output_now();
+                }
+            }
+            _ => {}
         });
 }

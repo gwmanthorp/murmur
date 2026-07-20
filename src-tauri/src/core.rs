@@ -10,6 +10,7 @@ use crate::api::cleanup::{clean_with_fallback, CleanupError, CleanupOutcome, Cle
 use crate::api::cooldown::CooldownManager;
 use crate::api::execute::{answer_with_fallback, ExecuteRequest};
 use crate::api::transcription::{self, TranscriptionRequest};
+use crate::audio::output_mute::OutputMuteController;
 use crate::audio::RecordingHandle;
 use crate::commands::{self, CommandAction};
 use crate::events::{OverlayPhase, PipelineResult, HISTORY_CHANGED, PIPELINE_RESULT};
@@ -104,6 +105,7 @@ pub struct AppCore {
     client: reqwest::Client,
     cooldowns: Arc<CooldownManager>,
     history: Arc<Result<HistoryStore, String>>,
+    output_mute: Arc<OutputMuteController>,
     engine: OnceLock<Arc<ShortcutEngineHandle>>,
 }
 
@@ -121,6 +123,7 @@ impl AppCore {
             client: reqwest::Client::new(),
             cooldowns: Arc::new(CooldownManager::new(Some(settings::store::state_path()))),
             history: Arc::new(history),
+            output_mute: Arc::new(OutputMuteController::new()),
             settings: Arc::new(RwLock::new(persisted)),
             api_key: Arc::new(RwLock::new(api_key)),
             last_text: Arc::new(RwLock::new(None)),
@@ -192,6 +195,32 @@ impl AppCore {
             .set_state(OverlayPhase::Error, false, Some(message));
     }
 
+    async fn mute_output_for_recording(&self) {
+        let output_mute = self.output_mute.clone();
+        match tokio::task::spawn_blocking(move || output_mute.mute()).await {
+            Ok(Ok(())) => tracing::debug!("playback muted for recording"),
+            Ok(Err(error)) => {
+                tracing::warn!("could not mute playback; continuing dictation: {error}")
+            }
+            Err(error) => tracing::warn!("playback mute worker failed: {error}"),
+        }
+    }
+
+    async fn restore_output_after_recording(&self) {
+        let output_mute = self.output_mute.clone();
+        match tokio::task::spawn_blocking(move || output_mute.restore()).await {
+            Ok(Ok(())) => tracing::debug!("playback mute state restored"),
+            Ok(Err(error)) => tracing::warn!("could not restore playback mute state: {error}"),
+            Err(error) => tracing::warn!("playback restore worker failed: {error}"),
+        }
+    }
+
+    pub fn restore_output_now(&self) {
+        if let Err(error) = self.output_mute.restore() {
+            tracing::warn!("could not restore playback while exiting: {error}");
+        }
+    }
+
     fn finish_completed_run(
         &self,
         result: PipelineResult,
@@ -235,6 +264,10 @@ impl AppCore {
                         mode == TriggerMode::Toggle,
                         None,
                     );
+                    // Mute before opening the microphone so no playback can leak into
+                    // even the first captured audio buffer. Failure is intentionally
+                    // non-fatal: microphone dictation still remains useful.
+                    self.mute_output_for_recording().await;
                     let config = self.settings.read().unwrap().clone();
                     let level_tx = self.tx.clone();
                     let error_tx = self.tx.clone();
@@ -265,11 +298,13 @@ impl AppCore {
                             state = CoordinatorState::Recording { run, mode, handle };
                         }
                         Ok(Err(error)) => {
+                            self.restore_output_after_recording().await;
                             self.reset_shortcuts();
                             self.set_phase(RuntimePhase::Idle);
                             self.show_error(error.to_string());
                         }
                         Err(error) => {
+                            self.restore_output_after_recording().await;
                             self.reset_shortcuts();
                             self.set_phase(RuntimePhase::Idle);
                             self.show_error(format!("Could not start the microphone: {error}"));
@@ -288,6 +323,7 @@ impl AppCore {
                     else {
                         continue;
                     };
+                    self.restore_output_after_recording().await;
                     let enabled = self.settings.read().unwrap().sounds_enabled;
                     sound::play(sound::Cue::Stop, enabled);
                     self.set_phase(RuntimePhase::Processing);
@@ -306,6 +342,7 @@ impl AppCore {
                         std::mem::replace(&mut state, CoordinatorState::Idle)
                     {
                         let _ = tokio::task::spawn_blocking(move || handle.cancel()).await;
+                        self.restore_output_after_recording().await;
                         self.set_phase(RuntimePhase::Idle);
                         self.overlay.hide();
                     }
@@ -330,6 +367,7 @@ impl AppCore {
                         {
                             let _ = tokio::task::spawn_blocking(move || handle.cancel()).await;
                         }
+                        self.restore_output_after_recording().await;
                         self.set_phase(RuntimePhase::Idle);
                         self.reset_shortcuts();
                         self.show_error(format!("Microphone disconnected: {message}"));
@@ -365,6 +403,8 @@ impl AppCore {
                 }
             }
         }
+
+        self.restore_output_after_recording().await;
     }
 
     fn spawn_pipeline(&self, run: u64, recording: RecordingHandle, cancel: CancellationToken) {
