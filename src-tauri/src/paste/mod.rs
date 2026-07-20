@@ -27,9 +27,7 @@ pub fn paste_text_with_submit(
     preserve_clipboard: bool,
     submit: bool,
 ) -> Result<(), String> {
-    if !inject::wait_for_keys_released(binding_vks) {
-        return Err(MODIFIER_RELEASE_ERROR.into());
-    }
+    ensure_keys_released_with(binding_vks, inject::wait_for_keys_released)?;
     let to_paste = text_for_paste(text);
 
     let snapshot = if preserve_clipboard {
@@ -67,6 +65,20 @@ pub fn paste_text_with_submit(
         }
     }
     Ok(())
+}
+
+fn ensure_keys_released_with(
+    binding_vks: &[u16],
+    wait: impl FnOnce(&[u16]) -> Result<(), Vec<u16>>,
+) -> Result<(), String> {
+    wait(binding_vks).map_err(|held_keys| {
+        tracing::warn!(
+            stage = "before_clipboard_write",
+            ?held_keys,
+            "automatic paste blocked by physically held keys"
+        );
+        MODIFIER_RELEASE_ERROR.to_string()
+    })
 }
 
 fn text_for_paste(text: &str) -> String {
@@ -109,5 +121,16 @@ mod tests {
     #[test]
     fn submit_failure_message_is_specific() {
         assert_eq!(SUBMIT_ERROR, "Text pasted, but Enter could not be sent.");
+    }
+
+    #[test]
+    fn modifier_timeout_stops_before_clipboard_work() {
+        let clipboard_mutated = std::cell::Cell::new(false);
+        let released = ensure_keys_released_with(&[0xA3], |_| Err(vec![0xA3]));
+        if released.is_ok() {
+            clipboard_mutated.set(true);
+        }
+        assert_eq!(released.unwrap_err(), MODIFIER_RELEASE_ERROR);
+        assert!(!clipboard_mutated.get());
     }
 }
