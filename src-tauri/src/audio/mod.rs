@@ -1,4 +1,5 @@
 pub mod normalizer;
+pub mod output_mute;
 pub mod recorder;
 pub mod resample;
 

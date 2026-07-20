@@ -5,7 +5,7 @@ use std::io::Cursor;
 use std::sync::OnceLock;
 
 use windows::core::PCWSTR;
-use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY};
+use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_SYNC};
 
 pub enum Cue {
     Start,
@@ -63,6 +63,22 @@ pub fn play(cue: Cue, enabled: bool) {
             PCWSTR(bytes.as_ptr() as *const u16),
             None,
             SND_MEMORY | SND_ASYNC,
+        );
+    }
+}
+
+/// Plays a cue to completion. Used before recording starts so playback can be
+/// muted only after the cue finishes, preventing Murmur from recording itself.
+pub fn play_blocking(cue: Cue, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    let bytes = cue_bytes(&cue);
+    unsafe {
+        let _ = PlaySoundW(
+            PCWSTR(bytes.as_ptr() as *const u16),
+            None,
+            SND_MEMORY | SND_SYNC,
         );
     }
 }
