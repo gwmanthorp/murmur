@@ -169,6 +169,26 @@ impl AppCore {
         }
     }
 
+    pub fn runtime_phase(&self) -> RuntimePhase {
+        *self.phase.read().unwrap()
+    }
+
+    /// Atomically blocks new shortcut sessions before an updater installer exits
+    /// the process. The updater only calls this while the coordinator is idle.
+    pub fn try_prepare_for_update(&self) -> bool {
+        if self.runtime_phase() != RuntimePhase::Idle {
+            return false;
+        }
+        self.set_processing(true);
+        self.restore_output_now();
+        true
+    }
+
+    pub fn update_install_failed(&self) {
+        self.set_processing(false);
+        self.set_phase(RuntimePhase::Idle);
+    }
+
     fn set_phase(&self, phase: RuntimePhase) {
         *self.phase.write().unwrap() = phase;
         let paste_enabled = self.last_text.read().unwrap().is_some();

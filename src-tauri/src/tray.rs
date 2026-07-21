@@ -9,6 +9,7 @@ use crate::core::{AppCore, RuntimePhase};
 pub struct TrayState {
     toggle: MenuItem<tauri::Wry>,
     paste_again: MenuItem<tauri::Wry>,
+    update: MenuItem<tauri::Wry>,
 }
 
 pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
@@ -16,6 +17,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
     let paste_again = MenuItem::with_id(app, "paste_again", "Paste Again", false, None::<&str>)?;
     let history = MenuItem::with_id(app, "history", "History...", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "Check for Updates...", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Murmur", true, None::<&str>)?;
     let menu = Menu::with_items(
@@ -25,6 +27,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
             &paste_again,
             &history,
             &settings,
+            &update,
             &separator,
             &quit,
         ],
@@ -47,6 +50,11 @@ pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
             }
             "history" => crate::show_history(app),
             "settings" => crate::show_settings(app),
+            "update" => {
+                let manager = app.state::<std::sync::Arc<crate::updater::UpdateManager>>();
+                let core = app.state::<std::sync::Arc<AppCore>>();
+                manager.manual_action(core.inner().clone());
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -60,7 +68,16 @@ pub fn init(app: &AppHandle) -> tauri::Result<TrayState> {
     Ok(TrayState {
         toggle,
         paste_again,
+        update,
     })
+}
+
+pub fn set_update_state(app: &AppHandle, state: &crate::updater::UpdateState) {
+    if let Some(tray) = app.try_state::<TrayState>() {
+        let (label, enabled) = state.tray_presentation();
+        let _ = tray.update.set_text(label);
+        let _ = tray.update.set_enabled(enabled);
+    }
 }
 
 pub fn set_runtime_state(app: &AppHandle, phase: RuntimePhase, paste_enabled: bool) {

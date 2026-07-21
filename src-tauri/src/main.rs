@@ -12,6 +12,7 @@ mod paste;
 mod settings;
 mod sound;
 mod tray;
+mod updater;
 mod windows_ext;
 
 use std::sync::Arc;
@@ -56,6 +57,8 @@ fn main() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             ping,
             core::get_settings,
@@ -69,6 +72,9 @@ fn main() {
             core::clear_history,
         ])
         .setup(|app| {
+            let updates = Arc::new(updater::UpdateManager::new(app.handle().clone()));
+            app.manage(updates.clone());
+
             let tray_state = tray::init(app.handle())?;
             app.manage(tray_state);
 
@@ -81,7 +87,8 @@ fn main() {
             }));
             core.attach_engine(engine);
             core.start(rx);
-            app.manage(core);
+            app.manage(core.clone());
+            updates.start(core);
             Ok(())
         })
         .on_window_event(|window, event| {
