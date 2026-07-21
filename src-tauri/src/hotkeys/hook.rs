@@ -11,12 +11,18 @@ use std::sync::{Arc, OnceLock};
 
 use arc_swap::ArcSwap;
 use crossbeam_channel::Sender;
-use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows::core::w;
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::RemoteDesktop::{
+    WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, SetTimer, SetWindowsHookExW,
-    TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_SYSKEYDOWN, WM_TIMER,
+    CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
+    KillTimer, RegisterClassW, SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_KEYDOWN, WM_SYSKEYDOWN, WM_TIMER, WM_WTSSESSION_CHANGE, WNDCLASSW,
 };
 
 use super::bindings::{is_modifier, modifier_bit, MODIFIER_VKS, VK_ESCAPE};
@@ -25,6 +31,10 @@ use super::state_machine::EngineInput;
 /// Marker placed in `dwExtraInfo` of our own SendInput events so the hook
 /// never swallows or reacts to Murmur's synthetic Ctrl+V / Enter.
 pub const INJECT_SENTINEL: usize = 0x4D52_4D52; // "MRMR"
+
+/// `WM_WTSSESSION_CHANGE` wparam for a workstation unlock. Not emitted by the
+/// `windows` crate, so it is spelled out here (see WTS_SESSION_* in winuser.h).
+const WTS_SESSION_UNLOCK: u32 = 0x8;
 
 /// What the hook callback needs to know, swapped atomically by the consumer.
 #[derive(Default, Clone)]
@@ -126,6 +136,12 @@ fn take_swallowed(vk: u16) -> bool {
     })
 }
 
+fn clear_swallowed_all() {
+    for word in &SWALLOWED {
+        word.store(0, Ordering::Relaxed);
+    }
+}
+
 fn matches_keydown(cfg: &HookConfig, vk: u16, mask: u8) -> bool {
     (vk == VK_ESCAPE && cfg.swallow_esc)
         || cfg
@@ -185,6 +201,19 @@ pub fn physical_key_down(vk: u16) -> bool {
     PHYSICAL_KEYS.get(vk).unwrap_or_else(|| async_key_down(vk))
 }
 
+/// Recover from a session unlock. Key-up events on the secure desktop never
+/// reach a `WH_KEYBOARD_LL` hook, so keys held at lock time stay phantom-"down"
+/// across `MOD_MASK`, `SWALLOWED`, and the consumer's `down` set. Rebuild the
+/// hook's view from the real async key state and reset the consumer.
+fn on_session_resync() {
+    resync_physical_state();
+    clear_swallowed_all();
+    if let Some(tx) = TX.get() {
+        let _ = tx.try_send(EngineInput::ResyncKeys);
+    }
+    tracing::info!("keyboard state resynced after session unlock");
+}
+
 pub fn store_config(cfg: HookConfig) {
     CONFIG
         .get_or_init(|| ArcSwap::from_pointee(HookConfig::default()))
@@ -232,6 +261,72 @@ unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: WPARAM, lparam: LP
     CallNextHookEx(None, code, wparam, lparam)
 }
 
+/// Window proc for the message-only window that receives session-change
+/// notifications. Resyncs keyboard state whenever the workstation unlocks.
+unsafe extern "system" fn session_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_WTSSESSION_CHANGE && wparam.0 as u32 == WTS_SESSION_UNLOCK {
+        on_session_resync();
+        return LRESULT(0);
+    }
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+/// Create a hidden, message-only window on the calling (hook) thread and
+/// register it for this session's lock/unlock notifications. Returns the HWND
+/// so the caller can unregister and destroy it on shutdown.
+unsafe fn register_session_notifications() -> Option<HWND> {
+    let hinstance = match GetModuleHandleW(None) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("session notifications: GetModuleHandleW failed: {e}");
+            return None;
+        }
+    };
+    let class_name = w!("MurmurSessionNotify");
+    let wnd_class = WNDCLASSW {
+        lpfnWndProc: Some(session_wnd_proc),
+        hInstance: hinstance.into(),
+        lpszClassName: class_name,
+        ..Default::default()
+    };
+    // Ignore a "class already registered" result: harmless on re-entry.
+    let _ = RegisterClassW(&wnd_class);
+
+    let hwnd = match CreateWindowExW(
+        WINDOW_EX_STYLE(0),
+        class_name,
+        w!("Murmur session watcher"),
+        WINDOW_STYLE(0),
+        0,
+        0,
+        0,
+        0,
+        Some(HWND_MESSAGE),
+        None,
+        Some(hinstance.into()),
+        None,
+    ) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("session notifications: CreateWindowExW failed: {e}");
+            return None;
+        }
+    };
+
+    if let Err(e) = WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) {
+        tracing::error!("WTSRegisterSessionNotification failed: {e}");
+        let _ = DestroyWindow(hwnd);
+        return None;
+    }
+    tracing::info!("session lock/unlock notifications registered");
+    Some(hwnd)
+}
+
 /// Install the hook on a dedicated thread with its own message pump.
 pub fn spawn_hook(tx: Sender<EngineInput>) {
     let _ = TX.set(tx);
@@ -250,6 +345,9 @@ pub fn spawn_hook(tx: Sender<EngineInput>) {
             };
             resync_physical_state();
             tracing::info!("keyboard hook installed ({hook:?})");
+            // Watch for session unlock on this same pump so we can recover the
+            // key-ups that the secure desktop swallowed while locked.
+            let session_window = register_session_notifications();
             // Reinstall periodically on this same message-pump thread. Windows
             // may silently remove a low-level hook after a callback timeout;
             // this bounds recovery without adding work to the callback.
@@ -273,6 +371,10 @@ pub fn spawn_hook(tx: Sender<EngineInput>) {
                 DispatchMessageW(&msg);
             }
             let _ = KillTimer(None, timer_id);
+            if let Some(hwnd) = session_window {
+                let _ = WTSUnRegisterSessionNotification(hwnd);
+                let _ = DestroyWindow(hwnd);
+            }
             let _ = UnhookWindowsHookEx(hook);
         })
         .expect("failed to spawn hook thread");
