@@ -1,13 +1,15 @@
 {
   "name": "murmur",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version:set": "node scripts/version.mjs set",
+    "version:check": "node scripts/version.mjs check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"
