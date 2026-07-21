@@ -55,6 +55,10 @@ pub enum EngineInput {
     },
     SetTranscribing(bool),
     SetSuspended(bool),
+    /// Drop all tracked key state and return to idle. Sent after a session
+    /// unlock, where key-up events on the secure desktop were never delivered
+    /// to the hook and would otherwise leave phantom keys stuck "down".
+    ResyncKeys,
     ManualToggle,
 }
 
@@ -309,6 +313,15 @@ impl Engine {
                 self.down.clear();
                 let mut out = Vec::new();
                 if s && matches!(self.state, State::Active { .. }) {
+                    out.push(SessionEvent::Cancel);
+                }
+                self.state = State::Idle;
+                out
+            }
+            EngineInput::ResyncKeys => {
+                self.down.clear();
+                let mut out = Vec::new();
+                if matches!(self.state, State::Active { .. }) {
                     out.push(SessionEvent::Cancel);
                 }
                 self.state = State::Idle;
@@ -575,6 +588,32 @@ mod tests {
             e.handle_input(EngineInput::ManualToggle, Instant::now()),
             vec![SessionEvent::Stop]
         );
+    }
+
+    #[test]
+    fn resync_clears_phantom_keys_and_reenables_hold() {
+        const VK_LWIN: u16 = 0x5B;
+        let mut e = engine();
+        // A hold session is running and a phantom Win keydown arrived (e.g. its
+        // key-up was lost across a lock/unlock on the secure desktop).
+        assert_eq!(
+            key(&mut e, VK_RCONTROL, true),
+            vec![SessionEvent::Begin(TriggerMode::Hold)]
+        );
+        assert!(key(&mut e, VK_LWIN, true).is_empty());
+
+        // Resync cancels the active session and drops all tracked keys.
+        assert_eq!(
+            e.handle_input(EngineInput::ResyncKeys, Instant::now()),
+            vec![SessionEvent::Cancel]
+        );
+
+        // With the phantom Win gone, Right Ctrl fires a fresh hold again.
+        assert_eq!(
+            key(&mut e, VK_RCONTROL, true),
+            vec![SessionEvent::Begin(TriggerMode::Hold)]
+        );
+        assert_eq!(key(&mut e, VK_RCONTROL, false), vec![SessionEvent::Stop]);
     }
 
     #[test]
