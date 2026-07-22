@@ -12,24 +12,13 @@
   "app": {
     "windows": [
       {
-        "label": "settings",
-        "title": "Murmur Settings",
-        "url": "settings.html",
-        "width": 760,
-        "height": 680,
-        "minWidth": 560,
-        "minHeight": 480,
-        "visible": false,
-        "center": true
-      },
-      {
-        "label": "history",
-        "title": "Murmur History",
-        "url": "history.html",
-        "width": 760,
-        "height": 680,
-        "minWidth": 420,
-        "minHeight": 420,
+        "label": "main",
+        "title": "Murmur — v0.2.1",
+        "url": "index.html",
+        "width": 1040,
+        "height": 700,
+        "minWidth": 720,
+        "minHeight": 520,
         "visible": false,
         "center": true
       },
@@ -37,8 +26,8 @@
         "label": "overlay",
         "title": "Murmur Overlay",
         "url": "overlay.html",
-        "width": 320,
-        "height": 64,
+        "width": 220,
+        "height": 88,
         "visible": false,
         "transparent": true,
         "decorations": false,

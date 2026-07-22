@@ -3,53 +3,53 @@ import "./overlay.css";
 
 const root = document.getElementById("overlay-root")!;
 root.innerHTML = `
-  <section class="overlay-shell" data-phase="hidden" aria-live="polite">
-    <div class="activity" aria-hidden="true">
-      <div class="waveform">
+  <div class="overlay-shell" data-phase="hidden">
+    <button class="indicator" type="button" data-phase="hidden" aria-live="polite" aria-label="Murmur">
+      <span class="waveform" aria-hidden="true">
         <i></i><i></i><i></i><i></i><i></i>
-      </div>
-      <div class="spinner"></div>
-      <div class="pulse"><i></i><i></i><i></i></div>
-      <div class="error-mark">!</div>
-    </div>
-    <p class="message">Listening</p>
-    <button class="stop" type="button" aria-label="Stop dictating">Stop</button>
-  </section>
+      </span>
+      <span class="spinner" aria-hidden="true"></span>
+      <span class="error-mark" aria-hidden="true">!</span>
+    </button>
+  </div>
 `;
 
 const shell = root.querySelector<HTMLElement>(".overlay-shell")!;
-const message = root.querySelector<HTMLElement>(".message")!;
-const stop = root.querySelector<HTMLButtonElement>(".stop")!;
+const indicator = root.querySelector<HTMLButtonElement>(".indicator")!;
 const bars = [...root.querySelectorAll<HTMLElement>(".waveform i")];
+
+const labels: Record<OverlayState["phase"], string> = {
+  hidden: "Murmur",
+  initializing: "Opening microphone",
+  recording: "Listening",
+  transcribing: "Transcribing",
+  executing: "Answering request",
+  error: "Something went wrong",
+};
 
 function render(state: OverlayState): void {
   shell.dataset.phase = state.phase;
-  shell.dataset.toggle = String(state.toggleMode);
-  message.textContent =
-    state.message ??
-    ({
-      hidden: "",
-      initializing: "Opening microphone",
-      recording: "Listening",
-      transcribing: "Turning speech into text",
-      executing: "Answering request",
-      error: "Something went wrong",
-    } satisfies Record<OverlayState["phase"], string>)[state.phase];
+  indicator.dataset.phase = state.phase;
+  indicator.dataset.toggle = String(state.toggleMode);
+  indicator.setAttribute("aria-label", state.message ?? labels[state.phase]);
 }
 
 function setLevel(level: number): void {
   const clamped = Math.max(0, Math.min(1, level));
   const weights = [0.58, 0.82, 1, 0.78, 0.52];
   bars.forEach((bar, index) => {
-    const height = 5 + clamped * weights[index] * 25;
+    const height = 4 + clamped * weights[index] * 18;
     bar.style.height = `${height}px`;
   });
 }
 
-stop.addEventListener("click", () => {
-  stop.disabled = true;
+// The window is click-through except during toggle-mode recording, so a click
+// here can only mean "stop dictating" from the capsule itself.
+indicator.addEventListener("click", () => {
+  if (indicator.dataset.phase !== "recording") return;
+  indicator.disabled = true;
   void commands.stopDictating().finally(() => {
-    stop.disabled = false;
+    indicator.disabled = false;
   });
 });
 

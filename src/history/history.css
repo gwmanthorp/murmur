@@ -1,135 +1,190 @@
-/* Recent-dictation ledger: the timestamp rail is the page's signature element. */
 .history-shell {
-  width: min(100%, 760px);
-  margin: 0 auto;
-  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: var(--space-8) var(--space-12) var(--space-8);
 }
 
-.history-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-8);
-  align-items: end;
-  padding: var(--space-4) 0 var(--space-8);
-  border-bottom: 1px solid var(--color-border);
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding-bottom: var(--space-8);
 }
 
-.eyebrow {
-  margin: 0 0 var(--space-3);
-  color: var(--color-accent);
-  font: 650 var(--text-xs) var(--font-mono);
-  letter-spacing: 0.08em;
-}
-
-h1 {
+.pane-title {
   margin: 0;
-  font-size: var(--text-2xl);
-  line-height: var(--leading-tight);
-  letter-spacing: -0.025em;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.75rem;
+  letter-spacing: -0.01em;
 }
 
-.intro {
-  max-width: 58ch;
-  margin: var(--space-3) 0 0;
-  color: var(--color-text-subtle);
+.history-search {
+  width: min(320px, 45%);
 }
 
-.history-header button,
-.row-action {
-  min-height: 44px;
+.history-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: var(--space-8);
+  min-height: 0;
+  flex: 1;
 }
 
-.status {
-  min-height: 20px;
-  margin: var(--space-4) 0;
+/* Master list */
+.history-master {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.history-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: auto;
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+}
+
+.history-item:hover:not(.active) {
+  border-color: transparent;
+  background: var(--color-surface);
+}
+
+.history-item.active {
+  border-color: var(--color-border);
+  background: var(--color-raised);
+}
+
+.item-title {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-time {
   color: var(--color-text-subtle);
   font-size: var(--text-xs);
 }
 
-.status[data-kind="success"] { color: var(--color-success); }
-.status[data-kind="error"] { color: var(--color-error); }
-
-.history-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--color-raised);
-}
-
-.history-entry {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.entry-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-6) var(--space-4) var(--space-6) 0;
-  border-right: 1px solid var(--color-raised);
-}
-
-.entry-index {
-  color: var(--color-accent);
-  font: 650 var(--text-xs) var(--font-mono);
-}
-
-.entry-rail time {
+.history-empty {
+  padding: var(--space-3);
   color: var(--color-text-subtle);
-  font: 500 var(--text-xs) var(--font-mono);
-  line-height: var(--leading-normal);
+  font-size: var(--text-sm);
 }
 
-.entry-content {
+.link-danger {
+  align-self: flex-start;
+  min-height: auto;
+  margin-top: var(--space-3);
+  padding: var(--space-2) 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+
+.link-danger:hover:not(:disabled) {
+  color: var(--color-error);
+}
+
+/* Detail */
+.history-detail {
   min-width: 0;
-  padding: var(--space-6) 0 var(--space-6) var(--space-6);
+  overflow-y: auto;
 }
 
-.entry-text {
-  max-width: 68ch;
+.history-detail[data-empty="true"] {
+  display: grid;
+  place-items: center;
+}
+
+.detail-empty {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
+
+.detail-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.detail-stamp {
+  color: var(--color-text-subtle);
+  font: 600 var(--text-xs) var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.detail-actions {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.link {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+}
+
+.link:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-accent-hover);
+}
+
+.link.link-danger {
+  margin: 0;
+  color: var(--color-error);
+}
+
+.detail-card {
+  padding: var(--space-4) var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.detail-text {
   margin: 0;
   color: var(--color-text);
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
   font-size: var(--text-base);
   line-height: var(--leading-normal);
-  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
-.entry-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-
-.row-action {
-  background: transparent;
-}
-
-.empty-state {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  min-height: 220px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.empty-state[hidden] { display: none; }
-.empty-index {
-  margin: 0;
-  padding: var(--space-8) var(--space-4) 0 0;
-  border-right: 1px solid var(--color-raised);
-  color: var(--color-border);
-  font: 650 var(--text-xs) var(--font-mono);
-}
-
-.empty-state > div { padding: var(--space-8) 0 0 var(--space-6); }
-.empty-state h2 { margin: 0; font-size: var(--text-base); }
-.empty-state p:not(.empty-index) { max-width: 48ch; margin: var(--space-2) 0 0; color: var(--color-text-subtle); }
-
-@media (max-width: 540px) {
-  .history-shell { padding: var(--space-4); }
-  .history-header { grid-template-columns: 1fr; gap: var(--space-4); align-items: stretch; }
-  .history-entry, .empty-state { grid-template-columns: 84px minmax(0, 1fr); }
-  .entry-content, .empty-state > div { padding-left: var(--space-4); }
+@media (max-width: 780px) {
+  .history-shell {
+    padding: var(--space-6);
+  }
+  .history-body {
+    grid-template-columns: 1fr;
+  }
 }

@@ -40,12 +40,17 @@ impl Overlay {
         if let Some(w) = self.app.get_webview_window("overlay") {
             match phase {
                 OverlayPhase::Hidden => {
-                    let _ = w.hide();
+                    // The webview plays the slide-up; hide the window only after
+                    // it finishes, unless a newer state superseded this one.
+                    self.schedule_hide(generation, 350);
                 }
+                // The capsule only appears once we're actually listening, so it
+                // slides down on `Recording` rather than during mic startup.
+                OverlayPhase::Initializing => {}
                 _ => {
                     windows_ext::position_top_center(&w);
-                    // Clicks land only when the stop button is on screen
-                    // (toggle-mode recording) or an error toast is shown.
+                    // Clicks land only when the capsule is a stop target
+                    // (toggle-mode recording); otherwise they pass through.
                     let interactive = phase == OverlayPhase::Recording && toggle_mode;
                     let _ = w.set_ignore_cursor_events(!interactive);
                     if !w.is_visible().unwrap_or(false) {
@@ -57,26 +62,45 @@ impl Overlay {
         }
 
         if phase == OverlayPhase::Error {
-            // Auto-dismiss after 6s unless something newer replaced it.
+            // Auto-dismiss after 6s (then slide up) unless something newer replaced it.
             let app = self.app.clone();
             let gen_cell = self.generation.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                if gen_cell.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                let _ = app.emit(
+                    OVERLAY_STATE,
+                    OverlayState {
+                        phase: OverlayPhase::Hidden,
+                        toggle_mode: false,
+                        message: None,
+                    },
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(350)).await;
                 if gen_cell.load(Ordering::SeqCst) == generation {
-                    let _ = app.emit(
-                        OVERLAY_STATE,
-                        OverlayState {
-                            phase: OverlayPhase::Hidden,
-                            toggle_mode: false,
-                            message: None,
-                        },
-                    );
                     if let Some(w) = app.get_webview_window("overlay") {
                         let _ = w.hide();
                     }
                 }
             });
         }
+    }
+
+    /// Hide the overlay window after `delay_ms`, unless a newer state change
+    /// bumped the generation in the meantime (mirrors the error auto-hide).
+    fn schedule_hide(&self, generation: u64, delay_ms: u64) {
+        let app = self.app.clone();
+        let gen_cell = self.generation.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            if gen_cell.load(Ordering::SeqCst) == generation {
+                if let Some(w) = app.get_webview_window("overlay") {
+                    let _ = w.hide();
+                }
+            }
+        });
     }
 
     pub fn update_level(&self, level: f32) {

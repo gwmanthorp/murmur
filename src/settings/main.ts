@@ -1,120 +1,132 @@
 import { commands, type PublicSettings } from "../shared/ipc";
 import "./settings.css";
 
-const root = document.getElementById("settings-root")!;
+export function initSettings(root: HTMLElement): void {
 root.innerHTML = `
   <main class="settings-shell">
-    <header class="masthead">
-      <div>
-        <p class="eyebrow">MURMUR / CORE DICTATION</p>
-        <h1>Speak where the cursor is.</h1>
-        <p class="intro">Your audio goes directly to the provider you configure. The API key is protected by Windows and never shown again.</p>
-      </div>
-      <div class="key-state" data-configured="false"><span></span><strong>Key needed</strong></div>
+    <header class="pane-head">
+      <h1 class="pane-title">Settings</h1>
     </header>
 
     <form id="settings-form">
-      <section class="form-section" aria-labelledby="provider-heading">
+      <section class="setting-section" aria-labelledby="provider-heading">
         <div class="section-heading">
-          <span>01</span>
-          <div><h2 id="provider-heading">Provider</h2><p>Groq Cloud by default; OpenAI-compatible base URLs also work.</p></div>
+          <span class="section-index">01</span>
+          <h2 id="provider-heading">Provider</h2>
+          <p>Groq Cloud by default; OpenAI-compatible base URLs also work.</p>
+          <div class="key-state" data-configured="false"><span></span><strong>Key needed</strong></div>
         </div>
-        <div class="field-grid">
-          <div class="field full">
+        <div class="section-body">
+          <div class="field">
             <label for="api-key">API key</label>
             <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a new key to replace the saved key" />
             <p class="helper" id="key-helper">Leaving this blank preserves the protected key.</p>
           </div>
-          <div class="field full">
+          <div class="field">
             <label for="base-url">Base URL</label>
             <input id="base-url" type="url" spellcheck="false" required />
           </div>
-        </div>
-        <div class="actions">
-          <button id="validate" type="button">Validate credentials</button>
-          <button id="clear-key" class="danger" type="button">Clear saved key</button>
-        </div>
-      </section>
-
-      <section class="form-section" aria-labelledby="capture-heading">
-        <div class="section-heading">
-          <span>02</span>
-          <div><h2 id="capture-heading">Capture</h2><p>Balance response time and recognition accuracy, then choose your microphone.</p></div>
-        </div>
-        <div class="capture-fields">
-          <fieldset class="mode-picker">
-            <legend>Dictation mode</legend>
-            <div class="mode-options">
-              <label class="mode-option">
-                <input type="radio" name="dictation-mode" value="fast" />
-                <span><strong>Fast</strong><small>Whisper Turbo · quickest response</small></span>
-              </label>
-              <label class="mode-option">
-                <input type="radio" name="dictation-mode" value="polished" />
-                <span><strong>Polished</strong><small>Whisper Large v3 · best accuracy</small></span>
-              </label>
-            </div>
-            <p class="helper">Both modes still apply Murmur's cleanup pass.</p>
-          </fieldset>
-          <div class="field">
-          <label for="microphone">Microphone</label>
-          <select id="microphone"><option value="">System default</option></select>
+          <div class="actions">
+            <button id="validate" type="button">Validate credentials</button>
+            <button id="clear-key" class="danger" type="button">Clear saved key</button>
           </div>
         </div>
       </section>
 
-      <section class="commands-section" aria-labelledby="commands-heading">
+      <section class="setting-section" aria-labelledby="dictation-heading">
         <div class="section-heading">
-          <span>03</span>
-          <div><h2 id="commands-heading">Commands <em>Beta</em></h2><p>Terminal spoken words can submit text or request an answer.</p></div>
+          <span class="section-index">02</span>
+          <h2 id="dictation-heading">Dictation</h2>
+          <p>Polished runs a cleanup pass for filler words and punctuation; Fast pastes the raw transcript immediately.</p>
         </div>
-        <div class="commands-control">
-          <label class="beta-toggle" for="commands-beta">
-            <span><strong>Enable voice commands</strong><small>Off by default. Commands apply only to the final spoken word.</small></span>
-            <input id="commands-beta" type="checkbox" />
-            <i aria-hidden="true"></i>
-          </label>
-          <dl class="command-ledger">
-            <div><dt>… dispatch</dt><dd>Paste the preceding text, then press Enter.</dd></div>
-            <div><dt>… execute</dt><dd>Ask the configured model and paste its concise answer.</dd></div>
-          </dl>
-          <p class="command-warning"><strong>Dispatch sends Enter to the focused app.</strong> Murmur cannot verify that the cursor is in a text field.</p>
+        <div class="section-body">
+          <div class="setting-row">
+            <div class="row-label"><strong>Dictation mode</strong></div>
+            <div class="segmented" role="radiogroup" aria-label="Dictation mode">
+              <label class="segment">
+                <input type="radio" name="dictation-mode" value="polished" />
+                <span>Polished</span>
+              </label>
+              <label class="segment">
+                <input type="radio" name="dictation-mode" value="fast" />
+                <span>Fast</span>
+              </label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="row-label"><strong>Microphone</strong><small>Input device used while dictating.</small></div>
+            <select id="microphone"><option value="">System default</option></select>
+          </div>
+          <div class="setting-row">
+            <div class="row-label"><strong>Custom vocabulary</strong><small>High-priority spellings — names, jargon, product terms.</small></div>
+            <input id="custom-vocabulary" type="text" spellcheck="false" placeholder="e.g. Groq, Tauri, DPAPI" />
+          </div>
         </div>
       </section>
 
-      <section class="shortcut-section" aria-labelledby="shortcuts-heading">
+      <section class="setting-section" aria-labelledby="hotkeys-heading">
         <div class="section-heading">
-          <span>04</span>
-          <div><h2 id="shortcuts-heading">Shortcuts</h2><p>Rebinding arrives with the full settings pass.</p></div>
+          <span class="section-index">03</span>
+          <h2 id="hotkeys-heading">Hotkeys &amp; voice commands</h2>
+          <p>Voice commands are opt-in. End a phrase with "dispatch" to paste it and press Enter, or "execute" to send it to an LLM and paste back the response instead of the transcription.</p>
         </div>
-        <dl>
-          <div><dt>Hold to talk</dt><dd id="hold-shortcut">Right Ctrl</dd></div>
-          <div><dt>Tap to toggle</dt><dd id="toggle-shortcut">F9</dd></div>
-          <div><dt>Cancel processing</dt><dd>Esc</dd></div>
-        </dl>
+        <div class="section-body">
+          <div class="shortcut-row"><span>Hold to talk</span><kbd id="hold-shortcut">Right Ctrl</kbd></div>
+          <div class="shortcut-row"><span>Tap to toggle</span><kbd id="toggle-shortcut">F9</kbd></div>
+          <div class="shortcut-row"><span>Cancel processing</span><kbd>Esc</kbd></div>
+          <label class="setting-row toggle-row" for="commands-beta">
+            <div class="row-label"><strong>Voice commands</strong><small>Beta — opt in to spoken commands.</small></div>
+            <input id="commands-beta" type="checkbox" />
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+        </div>
+      </section>
+
+      <section class="setting-section" aria-labelledby="general-heading">
+        <div class="section-heading">
+          <span class="section-index">04</span>
+          <h2 id="general-heading">General</h2>
+        </div>
+        <div class="section-body">
+          <label class="setting-row toggle-row" for="instruction-guard">
+            <div class="row-label"><strong>Instruction guard</strong><small>Blocks the transcript from being executed as an instruction during cleanup.</small></div>
+            <input id="instruction-guard" type="checkbox" checked />
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+          <label class="setting-row toggle-row" for="launch-login">
+            <div class="row-label"><strong>Launch at login</strong></div>
+            <input id="launch-login" type="checkbox" checked />
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+          <label class="setting-row toggle-row" for="sound-cues">
+            <div class="row-label"><strong>Sound cues</strong></div>
+            <input id="sound-cues" type="checkbox" checked />
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+        </div>
       </section>
 
       <footer class="save-bar">
         <p id="status" role="status">Loading settings...</p>
-        <button id="save" class="primary" type="submit">Save dictation settings</button>
+        <button id="save" class="primary" type="submit">Save settings</button>
       </footer>
     </form>
   </main>
 `;
 
-const form = document.querySelector<HTMLFormElement>("#settings-form")!;
-const apiKey = document.querySelector<HTMLInputElement>("#api-key")!;
-const baseUrl = document.querySelector<HTMLInputElement>("#base-url")!;
-const microphone = document.querySelector<HTMLSelectElement>("#microphone")!;
+const form = root.querySelector<HTMLFormElement>("#settings-form")!;
+const apiKey = root.querySelector<HTMLInputElement>("#api-key")!;
+const baseUrl = root.querySelector<HTMLInputElement>("#base-url")!;
+const microphone = root.querySelector<HTMLSelectElement>("#microphone")!;
 const dictationModes = Array.from(
-  document.querySelectorAll<HTMLInputElement>('input[name="dictation-mode"]'),
+  root.querySelectorAll<HTMLInputElement>('input[name="dictation-mode"]'),
 );
-const status = document.querySelector<HTMLElement>("#status")!;
-const save = document.querySelector<HTMLButtonElement>("#save")!;
-const validate = document.querySelector<HTMLButtonElement>("#validate")!;
-const clearKey = document.querySelector<HTMLButtonElement>("#clear-key")!;
-const keyState = document.querySelector<HTMLElement>(".key-state")!;
-const commandsBeta = document.querySelector<HTMLInputElement>("#commands-beta")!;
+const status = root.querySelector<HTMLElement>("#status")!;
+const save = root.querySelector<HTMLButtonElement>("#save")!;
+const validate = root.querySelector<HTMLButtonElement>("#validate")!;
+const clearKey = root.querySelector<HTMLButtonElement>("#clear-key")!;
+const keyState = root.querySelector<HTMLElement>(".key-state")!;
+const commandsBeta = root.querySelector<HTMLInputElement>("#commands-beta")!;
 
 let current: PublicSettings | undefined;
 
@@ -136,8 +148,8 @@ function render(settings: PublicSettings): void {
   microphone.replaceChildren(new Option("System default", ""));
   settings.micDevices.forEach((device) => microphone.add(new Option(device, device)));
   microphone.value = settings.micDevice ?? "";
-  document.querySelector("#hold-shortcut")!.textContent = settings.holdShortcut;
-  document.querySelector("#toggle-shortcut")!.textContent = settings.toggleShortcut;
+  root.querySelector("#hold-shortcut")!.textContent = settings.holdShortcut;
+  root.querySelector("#toggle-shortcut")!.textContent = settings.toggleShortcut;
   commandsBeta.checked = settings.commandsBetaEnabled;
 }
 
@@ -217,3 +229,4 @@ form.addEventListener("submit", async (event) => {
 });
 
 void load();
+}

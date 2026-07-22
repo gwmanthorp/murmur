@@ -33,17 +33,18 @@ pub fn make_unfocusable(window: &WebviewWindow) {
     }
 }
 
-/// Top-center of the primary monitor, just below the top edge.
+/// Top-center of the primary monitor, flush to the top edge so the indicator
+/// capsule can slide down into view from above (and back up off screen).
 pub fn position_top_center(window: &WebviewWindow) {
     let Ok(Some(monitor)) = window.primary_monitor() else {
         return;
     };
     let screen = monitor.size();
     let win = window.outer_size().unwrap_or(tauri::PhysicalSize {
-        width: 320,
-        height: 64,
+        width: 220,
+        height: 88,
     });
     let x = monitor.position().x + ((screen.width as i32 - win.width as i32) / 2);
-    let y = monitor.position().y + 8;
+    let y = monitor.position().y;
     let _ = window.set_position(PhysicalPosition { x, y });
 }

@@ -60,6 +60,12 @@ export function onHistoryChanged(cb: () => void): Promise<UnlistenFn> {
   return listen("history://changed", cb);
 }
 
+export function onNavigate(
+  cb: (pane: "history" | "settings") => void,
+): Promise<UnlistenFn> {
+  return listen<"history" | "settings">("nav://goto", (e) => cb(e.payload));
+}
+
 export const commands = {
   ping: () => invoke<string>("ping"),
   getSettings: () => invoke<PublicSettings>("get_settings"),

@@ -4,6 +4,7 @@ use serde::Serialize;
 
 pub const OVERLAY_STATE: &str = "overlay://state";
 pub const OVERLAY_LEVEL: &str = "overlay://level";
+pub const NAVIGATE: &str = "nav://goto";
 pub const SETTINGS_CHANGED: &str = "settings://changed";
 pub const PIPELINE_RESULT: &str = "pipeline://result";
 pub const HISTORY_CHANGED: &str = "history://changed";
