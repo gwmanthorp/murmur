@@ -19,6 +19,27 @@ body {
   background: var(--color-bg);
 }
 
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.brand-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+
+.brand-wordmark {
+  width: 112px;
+  height: 26px;
+  background: url("/brand/wordmark.png") center / 112px auto no-repeat;
+}
+
 .nav-item {
   justify-content: flex-start;
   min-height: 40px;

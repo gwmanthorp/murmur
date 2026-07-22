@@ -51,6 +51,35 @@
   box-sizing: border-box;
 }
 
+/* Deep-blue scrollbars that blend into the background. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-raised) var(--color-bg);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-raised);
+  border: 2px solid var(--color-bg);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-bg);
+}
+
 html,
 body {
   min-width: 320px;

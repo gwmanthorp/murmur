@@ -9,6 +9,10 @@ const root = document.getElementById("app-root")!;
 root.innerHTML = `
   <div class="app-shell">
     <nav class="app-nav" aria-label="Sections">
+      <div class="app-brand">
+        <img class="brand-icon" src="/brand/app-icon.png" alt="" />
+        <span class="brand-wordmark" role="img" aria-label="Murmur"></span>
+      </div>
       <button class="nav-item" type="button" data-pane="history">History</button>
       <button class="nav-item" type="button" data-pane="settings">Settings</button>
     </nav>
