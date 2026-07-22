@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Allow every Murmur window to use the JS event API (listen/emit) so overlay state, audio levels, history-changed, and navigation events reach the webviews.",
+  "windows": ["main", "overlay", "onboarding"],
+  "permissions": ["core:event:default"]
+}

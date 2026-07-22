@@ -1,5 +1,6 @@
 :root {
   --pill-bg: #141626;
+  --pill-idle: #565a80;
   --pill-border: #3a3d66;
   --pill-accent: #8b8bf5;
   --pill-accent-soft: rgb(139 139 245 / 0.45);
@@ -24,64 +25,71 @@ body {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: center;
-  padding-top: 12px;
+  padding-bottom: 6px;
+  pointer-events: none;
   user-select: none;
 }
 
 .indicator {
   display: grid;
   place-items: center;
-  width: 88px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--pill-border);
-  border-radius: 999px;
-  background: var(--pill-bg);
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 0.4),
-    0 0 0 1px rgb(139 139 245 / 0.08),
-    0 0 18px var(--pill-accent-soft);
-  cursor: default;
-  /* Resting position; hidden state slides it up off-screen. */
-  transform: translateY(0);
-  opacity: 1;
+  /* Idle: a thin, dim bar. */
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--pill-idle);
+  opacity: 0.55;
   transition:
-    transform 300ms var(--pill-ease),
-    opacity 220ms ease,
-    width 280ms var(--pill-ease),
-    border-radius 280ms var(--pill-ease),
-    border-color 200ms ease,
-    background 200ms ease;
+    width 260ms var(--pill-ease),
+    height 260ms var(--pill-ease),
+    opacity 200ms ease,
+    border-radius 260ms var(--pill-ease),
+    background 200ms ease,
+    box-shadow 200ms ease;
 }
 
 .indicator > * {
   grid-area: 1 / 1;
 }
 
-/* Slide up out of view while hidden or during mic startup. */
-.indicator[data-phase="hidden"],
+/* Waking the mic: same bar, full opacity. */
 .indicator[data-phase="initializing"] {
-  transform: translateY(-72px);
-  opacity: 0;
+  opacity: 1;
 }
 
-.indicator[data-phase="recording"][data-toggle="true"] {
-  cursor: pointer;
+/* Recording: expand to a periwinkle pill with the live waveform. */
+.indicator[data-phase="recording"] {
+  width: 96px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  opacity: 1;
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 0.4),
+    0 0 16px var(--pill-accent-soft);
 }
 
-/* Processing + error collapse the capsule into a circle. */
+/* Processing / error: collapse to a circle. */
 .indicator[data-phase="transcribing"],
 .indicator[data-phase="executing"],
 .indicator[data-phase="error"] {
-  width: 34px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
+  background: var(--pill-bg);
+  opacity: 1;
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 0.4),
+    0 0 16px var(--pill-accent-soft);
 }
 
 .indicator[data-phase="error"] {
-  border-color: var(--pill-error);
   background: color-mix(in srgb, var(--pill-error) 16%, var(--pill-bg));
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 0.4),
+    0 0 16px rgb(239 125 131 / 0.4);
 }
 
 /* Waveform (recording) */
@@ -89,7 +97,7 @@ body {
   display: none;
   align-items: center;
   gap: 3px;
-  height: 20px;
+  height: 18px;
 }
 .waveform i {
   width: 3px;
@@ -105,8 +113,8 @@ body {
 /* Spinner (processing) */
 .spinner {
   display: none;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border: 2px solid var(--pill-track);
   border-top-color: var(--pill-accent);
   border-radius: 50%;
@@ -121,7 +129,7 @@ body {
 .error-mark {
   display: none;
   color: var(--pill-error);
-  font: 700 15px "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  font: 700 14px "Segoe UI Variable Text", "Segoe UI", sans-serif;
   line-height: 1;
 }
 .indicator[data-phase="error"] .error-mark {

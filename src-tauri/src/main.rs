@@ -41,10 +41,6 @@ fn show_settings(app: &tauri::AppHandle) {
     show_main(app, "settings");
 }
 
-fn show_history(app: &tauri::AppHandle) {
-    show_main(app, "history");
-}
-
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
