@@ -1,64 +1,152 @@
 :root {
-  --pill-bg: #111821;
-  --pill-border: #334250;
-  --pill-text: #eef4f7;
-  --pill-subtle: #9eacb8;
-  --pill-signal: #5bc6d0;
-  --pill-error: #ef858b;
-  --pill-space-1: 4px;
-  --pill-space-2: 8px;
-  --pill-space-3: 12px;
-  --pill-space-4: 16px;
-  --pill-radius: 8px;
-  --pill-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
-  --pill-fast: 150ms;
-  --pill-normal: 250ms;
+  --pill-bg: #141626;
+  --pill-idle: #565a80;
+  --pill-border: #3a3d66;
+  --pill-accent: #8b8bf5;
+  --pill-accent-soft: rgb(139 139 245 / 0.45);
+  --pill-error: #ef7d83;
+  --pill-track: #2b2e4d;
+  --pill-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-* { box-sizing: border-box; }
-html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-body { padding: var(--pill-space-2); font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; user-select: none; }
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
 
 .overlay-shell {
-  height: 48px;
+  position: fixed;
+  inset: 0;
   display: flex;
-  align-items: center;
-  gap: var(--pill-space-3);
-  padding: 0 var(--pill-space-3);
-  border: 1px solid var(--pill-border);
-  border-radius: var(--pill-radius);
-  background: var(--pill-bg);
-  box-shadow: var(--pill-shadow);
-  color: var(--pill-text);
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  pointer-events: none;
+  user-select: none;
 }
 
-.overlay-shell[data-phase="hidden"] { visibility: hidden; }
-.activity { width: 40px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; }
-.activity > * { grid-area: 1 / 1; }
-.message { flex: 1; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.indicator {
+  display: grid;
+  place-items: center;
+  /* Idle: a thin, dim bar. */
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--pill-idle);
+  opacity: 0.55;
+  transition:
+    width 260ms var(--pill-ease),
+    height 260ms var(--pill-ease),
+    opacity 200ms ease,
+    border-radius 260ms var(--pill-ease),
+    background 200ms ease,
+    box-shadow 200ms ease;
+}
 
-.waveform { height: 32px; display: none; align-items: center; gap: 3px; }
-.waveform i { width: 3px; height: 5px; border-radius: 2px; background: var(--pill-signal); transition: height var(--pill-fast) ease-out; }
-.overlay-shell[data-phase="recording"] .waveform { display: flex; }
+.indicator > * {
+  grid-area: 1 / 1;
+}
 
-.spinner { width: 17px; height: 17px; display: none; border: 2px solid var(--pill-border); border-top-color: var(--pill-signal); border-radius: 50%; animation: spin 800ms linear infinite; }
-.overlay-shell[data-phase="transcribing"] .spinner,
-.overlay-shell[data-phase="executing"] .spinner { display: block; }
+/* Waking the mic: same bar, full opacity. */
+.indicator[data-phase="initializing"] {
+  opacity: 1;
+}
 
-.pulse { display: none; gap: var(--pill-space-1); }
-.pulse i { width: 5px; height: 5px; border-radius: 50%; background: var(--pill-subtle); animation: pulse 900ms ease-in-out infinite alternate; }
-.pulse i:nth-child(2) { animation-delay: 150ms; }
-.pulse i:nth-child(3) { animation-delay: 300ms; }
-.overlay-shell[data-phase="initializing"] .pulse { display: flex; }
+/* Recording: expand to a periwinkle pill with the live waveform. */
+.indicator[data-phase="recording"] {
+  width: 96px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  opacity: 1;
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 0.4),
+    0 0 16px var(--pill-accent-soft);
+}
 
-.error-mark { display: none; width: 20px; height: 20px; place-items: center; border: 1px solid var(--pill-error); border-radius: 50%; color: var(--pill-error); font-size: 13px; font-weight: 700; }
-.overlay-shell[data-phase="error"] .error-mark { display: grid; }
-.overlay-shell[data-phase="error"] .message { color: var(--pill-error); }
+/* Processing / error: collapse to a circle. */
+.indicator[data-phase="transcribing"],
+.indicator[data-phase="executing"],
+.indicator[data-phase="error"] {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--pill-bg);
+  opacity: 1;
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 0.4),
+    0 0 16px var(--pill-accent-soft);
+}
 
-.stop { display: none; min-width: 52px; height: 30px; border: 1px solid var(--pill-border); border-radius: 4px; background: #1b2631; color: var(--pill-text); font: 600 12px "Segoe UI Variable Text", "Segoe UI", sans-serif; cursor: pointer; }
-.overlay-shell[data-phase="recording"][data-toggle="true"] .stop { display: block; }
-.stop:focus-visible { outline: 2px solid var(--pill-signal); outline-offset: 2px; }
+.indicator[data-phase="error"] {
+  background: color-mix(in srgb, var(--pill-error) 16%, var(--pill-bg));
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 0.4),
+    0 0 16px rgb(239 125 131 / 0.4);
+}
 
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes pulse { to { opacity: 0.25; transform: translateY(2px); } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+/* Waveform (recording) */
+.waveform {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+.waveform i {
+  width: 3px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pill-accent);
+  transition: height 120ms ease-out;
+}
+.indicator[data-phase="recording"] .waveform {
+  display: flex;
+}
+
+/* Spinner (processing) */
+.spinner {
+  display: none;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--pill-track);
+  border-top-color: var(--pill-accent);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+.indicator[data-phase="transcribing"] .spinner,
+.indicator[data-phase="executing"] .spinner {
+  display: block;
+}
+
+/* Error mark */
+.error-mark {
+  display: none;
+  color: var(--pill-error);
+  font: 700 14px "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  line-height: 1;
+}
+.indicator[data-phase="error"] .error-mark {
+  display: block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

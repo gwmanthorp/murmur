@@ -6,8 +6,8 @@
   --ink-700: #303b49;
   --mist-500: #8e9bab;
   --mist-100: #e8edf3;
-  --cyan-500: #58c4cf;
-  --cyan-400: #76d4dc;
+  --iris-500: #8b8bf5;
+  --iris-400: #a5a5f8;
   --red-400: #ef7d83;
   --green-400: #7dcc9b;
 
@@ -17,8 +17,8 @@
   --color-border: var(--ink-700);
   --color-text: var(--mist-100);
   --color-text-subtle: var(--mist-500);
-  --color-accent: var(--cyan-500);
-  --color-accent-hover: var(--cyan-400);
+  --color-accent: var(--iris-500);
+  --color-accent-hover: var(--iris-400);
   --color-error: var(--red-400);
   --color-success: var(--green-400);
 
@@ -49,6 +49,35 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Deep-blue scrollbars that blend into the background. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-raised) var(--color-bg);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-raised);
+  border: 2px solid var(--color-bg);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-bg);
 }
 
 html,

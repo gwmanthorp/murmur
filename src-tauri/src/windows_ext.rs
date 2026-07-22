@@ -1,7 +1,7 @@
 //! Win32 window styling for the overlay: never steal focus, stay out of the
-//! taskbar/alt-tab, and sit top-center of the primary display.
+//! taskbar/alt-tab, and sit bottom-center of the monitor under the cursor.
 
-use tauri::{PhysicalPosition, WebviewWindow};
+use tauri::{Monitor, PhysicalPosition, WebviewWindow};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
@@ -33,17 +33,31 @@ pub fn make_unfocusable(window: &WebviewWindow) {
     }
 }
 
-/// Top-center of the primary monitor, just below the top edge.
-pub fn position_top_center(window: &WebviewWindow) {
-    let Ok(Some(monitor)) = window.primary_monitor() else {
-        return;
-    };
-    let screen = monitor.size();
+/// Gap between the pill and the bottom of the monitor's work area.
+const BOTTOM_GAP: i32 = 8;
+
+/// Bottom-center of `monitor`'s work area (which already excludes the taskbar),
+/// leaving a small gap above the bottom edge.
+pub fn position_bottom_center(window: &WebviewWindow, monitor: &Monitor) {
+    let area = monitor.work_area();
     let win = window.outer_size().unwrap_or(tauri::PhysicalSize {
-        width: 320,
-        height: 64,
+        width: 160,
+        height: 48,
     });
-    let x = monitor.position().x + ((screen.width as i32 - win.width as i32) / 2);
-    let y = monitor.position().y + 8;
+    let x = area.position.x + ((area.size.width as i32 - win.width as i32) / 2);
+    let y = area.position.y + area.size.height as i32 - win.height as i32 - BOTTOM_GAP;
     let _ = window.set_position(PhysicalPosition { x, y });
+}
+
+/// Place the pill on whichever monitor the mouse cursor is currently on.
+pub fn position_under_cursor(window: &WebviewWindow) {
+    let monitor = window
+        .cursor_position()
+        .ok()
+        .and_then(|p| window.monitor_from_point(p.x, p.y).ok().flatten())
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
+        position_bottom_center(window, &monitor);
+    }
 }

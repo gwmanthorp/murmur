@@ -17,7 +17,7 @@ mod windows_ext;
 
 use std::sync::Arc;
 
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
 #[tauri::command]
@@ -25,20 +25,20 @@ fn ping() -> String {
     "pong".into()
 }
 
-fn show_settings(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("settings") {
+/// Show the single app window and ask the webview to switch to `pane`
+/// ("settings" or "history"). Both tray entries and the single-instance
+/// handler route through here.
+fn show_main(app: &tauri::AppHandle, pane: &str) {
+    if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        let _ = w.emit(crate::events::NAVIGATE, pane);
     }
 }
 
-fn show_history(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("history") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+fn show_settings(app: &tauri::AppHandle) {
+    show_main(app, "settings");
 }
 
 fn main() {
