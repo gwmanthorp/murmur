@@ -34,7 +34,7 @@ pub fn make_unfocusable(window: &WebviewWindow) {
 }
 
 /// Gap between the pill and the bottom of the monitor's work area.
-const BOTTOM_GAP: i32 = 8;
+const BOTTOM_GAP: i32 = 6;
 
 /// Bottom-center of `monitor`'s work area (which already excludes the taskbar),
 /// leaving a small gap above the bottom edge.
@@ -42,7 +42,7 @@ pub fn position_bottom_center(window: &WebviewWindow, monitor: &Monitor) {
     let area = monitor.work_area();
     let win = window.outer_size().unwrap_or(tauri::PhysicalSize {
         width: 160,
-        height: 48,
+        height: 76,
     });
     let x = area.position.x + ((area.size.width as i32 - win.width as i32) / 2);
     let y = area.position.y + area.size.height as i32 - win.height as i32 - BOTTOM_GAP;

@@ -27,7 +27,7 @@
         "title": "Murmur Overlay",
         "url": "overlay.html",
         "width": 160,
-        "height": 48,
+        "height": 76,
         "visible": false,
         "transparent": true,
         "decorations": false,
