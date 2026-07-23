@@ -17,7 +17,11 @@ const jsonFiles = [
     json.version = version;
     json.packages[""].version = version;
   }],
-  ["src-tauri/tauri.conf.json", (json) => { json.version = version; }],
+  ["src-tauri/tauri.conf.json", (json) => {
+    json.version = version;
+    const main = json.app?.windows?.find((w) => w.label === "main");
+    if (main) main.title = `Murmur — v${version}`;
+  }],
 ];
 
 function readJson(relative) {
@@ -32,10 +36,18 @@ function packageVersion(relative) {
   return match[1];
 }
 
+function mainWindowTitleVersion(relative) {
+  const main = readJson(relative).app?.windows?.find((w) => w.label === "main");
+  const match = main?.title?.match(/v(\d+\.\d+\.\d+)/);
+  if (!match) throw new Error(`Could not find a versioned main window title in ${relative}`);
+  return match[1];
+}
+
 const current = {
   "package.json": readJson("package.json").version,
   "package-lock.json": readJson("package-lock.json").version,
   "src-tauri/tauri.conf.json": readJson("src-tauri/tauri.conf.json").version,
+  "src-tauri/tauri.conf.json (main window title)": mainWindowTitleVersion("src-tauri/tauri.conf.json"),
   "src-tauri/Cargo.toml": packageVersion("src-tauri/Cargo.toml"),
   "src-tauri/Cargo.lock": packageVersion("src-tauri/Cargo.lock"),
 };
