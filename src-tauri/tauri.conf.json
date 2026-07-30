@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Murmur",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "identifier": "com.georgemanthorp.murmur",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Murmur — v0.2.3",
+        "title": "Murmur — v0.2.4",
         "url": "index.html",
         "width": 1040,
         "height": 700,
