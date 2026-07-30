@@ -13,6 +13,26 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::events::{OverlayPhase, OverlayState, OVERLAY_LEVEL, OVERLAY_STATE};
 use crate::windows_ext;
 
+/// How often the idle pill checks which monitor the cursor is on. Short enough
+/// that crossing screens reads as instant; a tick that doesn't cross monitors is
+/// just a `GetCursorPos` and a rectangle test.
+const FOLLOW_POLL: Duration = Duration::from_millis(25);
+
+/// Physical bounds of a monitor, cached so most poll ticks can early-out.
+#[derive(Clone, Copy)]
+struct Bounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl Bounds {
+    fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+}
+
 pub struct Overlay {
     app: AppHandle,
     /// Bumped on every state change so a stale error auto-dismiss can't fire.
@@ -46,9 +66,12 @@ impl Overlay {
         let app = self.app.clone();
         let active = self.active.clone();
         tauri::async_runtime::spawn(async move {
-            let mut last_monitor: Option<(i32, i32)> = None;
+            // Bounds of the monitor the pill currently sits on. While the cursor
+            // is still inside them there is nothing to do, so the common tick
+            // costs one cursor read and no monitor lookup or window move.
+            let mut current: Option<(Bounds, (i32, i32))> = None;
             loop {
-                tokio::time::sleep(Duration::from_millis(400)).await;
+                tokio::time::sleep(FOLLOW_POLL).await;
                 if active.load(Ordering::SeqCst) {
                     continue;
                 }
@@ -58,14 +81,28 @@ impl Overlay {
                 let Ok(pos) = w.cursor_position() else {
                     continue;
                 };
+                if let Some((bounds, _)) = current {
+                    if bounds.contains(pos.x as i32, pos.y as i32) {
+                        continue;
+                    }
+                }
                 let Ok(Some(monitor)) = w.monitor_from_point(pos.x, pos.y) else {
                     continue;
                 };
                 let key = (monitor.position().x, monitor.position().y);
-                if last_monitor != Some(key) {
+                if current.map(|(_, k)| k) != Some(key) {
                     windows_ext::position_bottom_center(&w, &monitor);
-                    last_monitor = Some(key);
                 }
+                let size = monitor.size();
+                current = Some((
+                    Bounds {
+                        x: key.0,
+                        y: key.1,
+                        width: size.width as i32,
+                        height: size.height as i32,
+                    },
+                    key,
+                ));
             }
         });
     }
