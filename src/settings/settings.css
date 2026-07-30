@@ -117,6 +117,21 @@
   max-width: 100%;
 }
 
+/* Full-width variant for controls a 280px column can't hold. */
+.setting-stack {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.setting-stack code {
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-raised);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.95em;
+}
+
 .row-label strong,
 .row-label small {
   display: block;

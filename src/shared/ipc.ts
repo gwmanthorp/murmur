@@ -23,6 +23,7 @@ export interface PublicSettings {
   dictationMode: DictationMode;
   micDevice?: string;
   micDevices: string[];
+  customVocabulary: string;
   holdShortcut: string;
   toggleShortcut: string;
   preserveClipboard: boolean;
@@ -35,6 +36,7 @@ export interface SaveSettingsInput {
   baseUrl: string;
   dictationMode: DictationMode;
   micDevice?: string;
+  customVocabulary: string;
   commandsBetaEnabled: boolean;
 }
 

@@ -2,6 +2,8 @@
 //! PostProcessingService.swift (defaultSystemPrompt, dated 2026-05-13) — it is
 //! carefully tuned; do not edit casually.
 
+use super::vocabulary::Vocabulary;
+
 pub const DEFAULT_SYSTEM_PROMPT: &str = r#"You are a literal dictation cleanup layer for short messages, email replies, prompts, and commands.
 
 Hard contract:
@@ -77,30 +79,31 @@ Output hygiene:
 #[allow(dead_code)] // used when prompt editing lands in the full settings pass
 pub const DEFAULT_SYSTEM_PROMPT_DATE: &str = "2026-05-13";
 
-/// Split raw vocabulary input on newlines/commas/semicolons, trim, and drop
-/// case-insensitive duplicates (FreeFlow's mergedVocabularyTerms).
-pub fn merged_vocabulary_terms(raw: &str) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    raw.split(['\n', ',', ';'])
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .filter(|t| seen.insert(t.to_lowercase()))
-        .map(String::from)
-        .collect()
-}
-
 /// Full system prompt: custom or default, plus the high-priority vocabulary
 /// block when vocabulary is present.
-pub fn build_system_prompt(custom_system_prompt: &str, vocabulary_terms: &[String]) -> String {
+pub fn build_system_prompt(custom_system_prompt: &str, vocabulary: &Vocabulary) -> String {
     let mut prompt = if custom_system_prompt.trim().is_empty() {
         DEFAULT_SYSTEM_PROMPT.to_string()
     } else {
         custom_system_prompt.to_string()
     };
-    if !vocabulary_terms.is_empty() {
+    if !vocabulary.terms.is_empty() {
         prompt.push_str(&format!(
             "\n\nThe following vocabulary must be treated as high-priority terms while rewriting.\nUse these spellings exactly in the output when relevant:\n{}",
-            vocabulary_terms.join(", ")
+            vocabulary.terms.join(", ")
+        ));
+    }
+    // Corrections already ran on the transcript; the model's only job is to
+    // not undo them.
+    if !vocabulary.corrections.is_empty() {
+        let pairs = vocabulary
+            .corrections
+            .iter()
+            .map(|c| format!("- \"{}\" is always \"{}\"", c.from, c.to))
+            .collect::<Vec<_>>()
+            .join("\n");
+        prompt.push_str(&format!(
+            "\n\nThese known transcription mistakes have already been corrected in the text. Keep the corrected spelling and never revert it:\n{pairs}"
         ));
     }
     prompt
@@ -125,18 +128,21 @@ mod tests {
     }
 
     #[test]
-    fn vocabulary_merge_dedupes_case_insensitively() {
-        let terms = merged_vocabulary_terms("Groq, tauri\nGROQ; WASAPI ,,  ");
-        assert_eq!(terms, vec!["Groq", "tauri", "WASAPI"]);
+    fn system_prompt_appends_vocabulary() {
+        let p = build_system_prompt("", &super::super::vocabulary::parse("Groq, WASAPI"));
+        assert!(p.contains("high-priority terms"));
+        assert!(p.ends_with("Groq, WASAPI"));
+        let no_vocab = build_system_prompt("", &Vocabulary::default());
+        assert_eq!(no_vocab, DEFAULT_SYSTEM_PROMPT);
     }
 
     #[test]
-    fn system_prompt_appends_vocabulary() {
-        let p = build_system_prompt("", &["Groq".into(), "WASAPI".into()]);
-        assert!(p.contains("high-priority terms"));
-        assert!(p.ends_with("Groq, WASAPI"));
-        let no_vocab = build_system_prompt("", &[]);
-        assert_eq!(no_vocab, DEFAULT_SYSTEM_PROMPT);
+    fn system_prompt_pins_corrections() {
+        let p = build_system_prompt("", &super::super::vocabulary::parse("towery -> Tauri"));
+        assert!(p.contains("never revert it"));
+        assert!(p.contains(r#"- "towery" is always "Tauri""#));
+        // The correction target is still listed as a term.
+        assert!(p.contains("Use these spellings exactly"));
     }
 
     #[test]

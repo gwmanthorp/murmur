@@ -57,9 +57,13 @@ root.innerHTML = `
             <div class="row-label"><strong>Microphone</strong><small>Input device used while dictating.</small></div>
             <select id="microphone"><option value="">System default</option></select>
           </div>
-          <div class="setting-row">
-            <div class="row-label"><strong>Custom vocabulary</strong><small>High-priority spellings — names, jargon, product terms.</small></div>
-            <input id="custom-vocabulary" type="text" spellcheck="false" placeholder="e.g. Groq, Tauri, DPAPI" />
+          <div class="setting-stack">
+            <div class="row-label">
+              <strong>Custom vocabulary</strong>
+              <small>Names, jargon, and product terms, one per line. Add <code>misheard -&gt; correct</code> to always fix a word that comes out wrong.</small>
+            </div>
+            <textarea id="custom-vocabulary" rows="6" spellcheck="false" placeholder="Groq&#10;WASAPI&#10;towery -> Tauri"></textarea>
+            <p class="helper" id="vocabulary-summary"></p>
           </div>
         </div>
       </section>
@@ -127,12 +131,46 @@ const validate = root.querySelector<HTMLButtonElement>("#validate")!;
 const clearKey = root.querySelector<HTMLButtonElement>("#clear-key")!;
 const keyState = root.querySelector<HTMLElement>(".key-state")!;
 const commandsBeta = root.querySelector<HTMLInputElement>("#commands-beta")!;
+const customVocabulary = root.querySelector<HTMLTextAreaElement>("#custom-vocabulary")!;
+const vocabularySummary = root.querySelector<HTMLElement>("#vocabulary-summary")!;
 
 let current: PublicSettings | undefined;
 
 function setStatus(message: string, kind: "neutral" | "success" | "error" = "neutral"): void {
   status.textContent = message;
   status.dataset.kind = kind;
+}
+
+const plural = (count: number, noun: string): string =>
+  `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/// Mirrors api::vocabulary::parse in Rust — kept in sync so the count the user
+/// sees matches what the pipeline actually loads.
+function summarizeVocabulary(raw: string): string {
+  const terms = new Set<string>();
+  const sources = new Set<string>();
+  for (const entry of raw.split(/[\n,;]/).map((line) => line.trim())) {
+    if (!entry) continue;
+    const arrow = /^(.*?)(?:->|=>|→)(.*)$/.exec(entry);
+    const from = arrow?.[1].trim() ?? "";
+    const to = arrow?.[2].trim() ?? "";
+    if (from && to) {
+      sources.add(from.toLowerCase());
+      terms.add(to.toLowerCase());
+    } else {
+      terms.add(entry.toLowerCase());
+    }
+  }
+  if (!terms.size && !sources.size) {
+    return "No custom vocabulary — Murmur transcribes normally.";
+  }
+  const parts = [plural(terms.size, "term")];
+  if (sources.size) parts.push(plural(sources.size, "correction"));
+  return `${parts.join(", ")} — applied to every dictation.`;
+}
+
+function renderVocabularySummary(): void {
+  vocabularySummary.textContent = summarizeVocabulary(customVocabulary.value);
 }
 
 function render(settings: PublicSettings): void {
@@ -151,7 +189,11 @@ function render(settings: PublicSettings): void {
   root.querySelector("#hold-shortcut")!.textContent = settings.holdShortcut;
   root.querySelector("#toggle-shortcut")!.textContent = settings.toggleShortcut;
   commandsBeta.checked = settings.commandsBetaEnabled;
+  customVocabulary.value = settings.customVocabulary;
+  renderVocabularySummary();
 }
+
+customVocabulary.addEventListener("input", renderVocabularySummary);
 
 function selectedDictationMode(): "fast" | "polished" {
   return dictationModes.find((input) => input.checked)?.value === "fast"
@@ -193,6 +235,7 @@ clearKey.addEventListener("click", async () => {
         baseUrl: baseUrl.value,
         dictationMode: selectedDictationMode(),
         micDevice: microphone.value || undefined,
+        customVocabulary: customVocabulary.value,
         commandsBetaEnabled: commandsBeta.checked,
       }),
     );
@@ -216,6 +259,7 @@ form.addEventListener("submit", async (event) => {
         baseUrl: baseUrl.value,
         dictationMode: selectedDictationMode(),
         micDevice: microphone.value || undefined,
+        customVocabulary: customVocabulary.value,
         commandsBetaEnabled: commandsBeta.checked,
       }),
     );
