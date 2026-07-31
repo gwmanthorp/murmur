@@ -1,6 +1,6 @@
 [package]
 name = "murmur"
-version = "0.2.4"
+version = "0.3.0"
 description = "Free Windows dictation app — bring your own Groq API key"
 authors = ["George Manthorp"]
 edition = "2021"
