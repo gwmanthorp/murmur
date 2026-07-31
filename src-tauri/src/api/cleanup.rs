@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use super::cooldown::{rate_limit_cooldown, CooldownManager};
 use super::models;
 use super::prompts;
+use super::vocabulary::{self, Vocabulary};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CleanupError {
@@ -58,7 +59,7 @@ pub async fn clean_with_fallback(
     req: &CleanupRequest,
     transcript: &str,
 ) -> Result<CleanupOutcome, CleanupError> {
-    let vocabulary = prompts::merged_vocabulary_terms(&req.custom_vocabulary);
+    let vocabulary = vocabulary::parse(&req.custom_vocabulary);
     let primary = req.primary_model.trim();
     let primary = if primary.is_empty() {
         models::DEFAULT_CLEANUP_MODEL
@@ -136,7 +137,7 @@ async fn process(
     req: &CleanupRequest,
     transcript: &str,
     model: &str,
-    vocabulary: &[String],
+    vocabulary: &Vocabulary,
 ) -> Result<CleanupOutcome, CleanupError> {
     let system_prompt = prompts::build_system_prompt(&req.custom_system_prompt, vocabulary);
     let user_message = prompts::build_user_message(transcript, &req.context_summary);
@@ -216,7 +217,9 @@ async fn process(
         return Err(CleanupError::EmptyOutput);
     }
 
-    let sanitized = sanitize_transcript(&content);
+    // Re-apply in case the model reverted a correction while rewriting; the
+    // incoming transcript was already corrected, so the guard stays consistent.
+    let sanitized = vocabulary.apply_corrections(&sanitize_transcript(&content));
     if req.instruction_guard_enabled && appears_to_have_executed_instruction(transcript, &sanitized)
     {
         return Err(CleanupError::SuspectedInstructionExecution);

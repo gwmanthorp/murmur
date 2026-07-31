@@ -10,6 +10,7 @@ use crate::api::cleanup::{clean_with_fallback, CleanupError, CleanupOutcome, Cle
 use crate::api::cooldown::CooldownManager;
 use crate::api::execute::{answer_with_fallback, ExecuteRequest};
 use crate::api::transcription::{self, TranscriptionRequest};
+use crate::api::vocabulary;
 use crate::audio::output_mute::OutputMuteController;
 use crate::audio::RecordingHandle;
 use crate::commands::{self, CommandAction};
@@ -471,6 +472,7 @@ impl AppCore {
             dictation_mode: settings.dictation_mode,
             mic_device: settings.mic_device,
             mic_devices: audio::list_input_devices(),
+            custom_vocabulary: settings.custom_vocabulary,
             hold_shortcut: settings.hold_shortcut.label(),
             toggle_shortcut: settings.toggle_shortcut.label(),
             preserve_clipboard: settings.preserve_clipboard,
@@ -501,6 +503,7 @@ impl AppCore {
         settings.dictation_mode = input.dictation_mode;
         settings.transcription_model = input.dictation_mode.transcription_model().into();
         settings.mic_device = input.mic_device.filter(|value| !value.trim().is_empty());
+        settings.custom_vocabulary = input.custom_vocabulary.trim().to_string();
         settings.commands_beta_enabled = input.commands_beta_enabled;
         settings::store::save(&settings).map_err(|error| error.to_string())?;
         *self.settings.write().unwrap() = settings;
@@ -954,6 +957,11 @@ async fn process_wav(
             return PipelineCompletion::Error(format!("Could not read recording: {error}"))
         }
     };
+    // Parsed once and used three times: to bias Whisper's decoding, to fix
+    // known mishearings before anything else reads the text, and to pin
+    // spellings during cleanup.
+    let vocabulary = vocabulary::parse(&settings.custom_vocabulary);
+    let whisper_prompt = vocabulary.whisper_prompt();
     let transcribe = transcription::transcribe(
         client,
         TranscriptionRequest {
@@ -961,6 +969,7 @@ async fn process_wav(
             api_key,
             model: settings.dictation_mode.transcription_model(),
             language: &settings.language,
+            prompt: &whisper_prompt,
             timeout: Duration::from_secs(20),
         },
         wav_bytes,
@@ -975,6 +984,7 @@ async fn process_wav(
     if raw.is_empty() {
         return PipelineCompletion::Empty;
     }
+    let raw = vocabulary.apply_corrections(&raw);
 
     let parsed = commands::parse(&raw, settings.commands_beta_enabled);
     if parsed.action != CommandAction::Paste && parsed.body.is_empty() {

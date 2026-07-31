@@ -85,6 +85,7 @@ pub struct PublicSettings {
     pub dictation_mode: DictationMode,
     pub mic_device: Option<String>,
     pub mic_devices: Vec<String>,
+    pub custom_vocabulary: String,
     pub hold_shortcut: String,
     pub toggle_shortcut: String,
     pub preserve_clipboard: bool,
@@ -100,6 +101,8 @@ pub struct SaveSettingsInput {
     pub base_url: String,
     pub dictation_mode: DictationMode,
     pub mic_device: Option<String>,
+    #[serde(default)]
+    pub custom_vocabulary: String,
     pub commands_beta_enabled: bool,
 }
 

@@ -75,6 +75,9 @@ pub struct TranscriptionRequest<'a> {
     pub model: &'a str,
     /// Optional ISO language hint (e.g. "en"); empty = auto-detect.
     pub language: &'a str,
+    /// Optional decoding hint biasing Whisper toward custom vocabulary;
+    /// empty = omit the field.
+    pub prompt: &'a str,
     pub timeout: Duration,
 }
 
@@ -100,6 +103,9 @@ pub async fn transcribe(
         );
     if !req.language.trim().is_empty() {
         form = form.text("language", req.language.trim().to_string());
+    }
+    if !req.prompt.trim().is_empty() {
+        form = form.text("prompt", req.prompt.trim().to_string());
     }
 
     let url = format!(
@@ -130,7 +136,30 @@ pub async fn transcribe(
         tracing::info!("filtered whisper hallucination: {:?}", parsed.text);
         return Ok(String::new());
     }
+    // On near-silence Whisper sometimes regurgitates its own decoding hint.
+    if echoes_prompt(&parsed.text, req.prompt) {
+        tracing::info!("filtered vocabulary prompt echo: {:?}", parsed.text);
+        return Ok(String::new());
+    }
     Ok(parsed.text)
+}
+
+/// Normalize to lowercase alphanumeric words for comparison.
+fn normalize_words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// True only when the transcript is *exactly* the prompt, so a real sentence
+/// that happens to use vocabulary terms is never dropped.
+fn echoes_prompt(text: &str, prompt: &str) -> bool {
+    if prompt.trim().is_empty() || text.trim().is_empty() {
+        return false;
+    }
+    normalize_words(text) == normalize_words(prompt)
 }
 
 fn is_hallucination(resp: &TranscriptionResponse) -> bool {
@@ -227,6 +256,23 @@ mod tests {
         let parsed: TranscriptionResponse = serde_json::from_str(body).unwrap();
         assert_eq!(parsed.text, "Hello world.");
         assert!(!is_hallucination(&parsed));
+    }
+
+    #[test]
+    fn filters_exact_prompt_echo() {
+        assert!(echoes_prompt("Groq, WASAPI, DPAPI.", "Groq, WASAPI, DPAPI"));
+        assert!(echoes_prompt(" groq wasapi dpapi ", "Groq, WASAPI, DPAPI"));
+    }
+
+    #[test]
+    fn keeps_speech_that_merely_uses_vocabulary() {
+        assert!(!echoes_prompt(
+            "Let's switch Groq for WASAPI.",
+            "Groq, WASAPI, DPAPI"
+        ));
+        assert!(!echoes_prompt("Groq", "Groq, WASAPI"));
+        assert!(!echoes_prompt("Anything", ""));
+        assert!(!echoes_prompt("", "Groq"));
     }
 
     #[test]
